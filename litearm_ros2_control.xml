@@ -1,0 +1,12 @@
+<library path="litearm_ros2_control">
+  <class
+    name="litearm_ros2_control/LitearmSystem"
+    type="litearm_ros2_control::LitearmSystem"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      litearm arm system interface, driven directly over USB CDC via the litearm C++ SDK.
+      Exports per-joint position/velocity commands (firmware MOVE_JS) and
+      position/velocity/effort state, plus opt-in diagnostic state interfaces.
+    </description>
+  </class>
+</library>

@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>litearm_ros2_control</name>
+  <version>1.0.0</version>
+  <description>
+    ros2_control SystemInterface for the litearm arm, driving it directly over USB CDC
+    through the litearm C++ SDK. read() consumes the SDK's cached 100 Hz status frame;
+    write() streams joint position/velocity references to the firmware's MOVE_JS servo.
+  </description>
+  <maintainer email="wurihao@nexform.tech">thetooler</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+
+  <!-- The litearm C++ SDK. It is a plain CMake package, not a rosdep key. CMakeLists
+       prefers an installed litearm (find_package) and otherwise builds the sibling
+       litearm-cpp source tree into this package, so a plain `colcon build` needs no
+       manual install step. -->
+  <depend>litearm</depend>
+
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

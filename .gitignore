@@ -1,0 +1,20 @@
+# colcon workspace layout, when this package is built in place
+build/
+install/
+log/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+Testing/
+*.o
+*.a
+*.so
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
