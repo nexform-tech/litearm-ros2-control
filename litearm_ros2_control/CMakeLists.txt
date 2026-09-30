@@ -19,9 +19,10 @@ find_package(rclcpp_lifecycle REQUIRED)
 # ─────────────────────────────────────────────────────────────────────────────
 # litearm C++ SDK
 #
-# Preferred: an installed litearm (find_package). If there is none, build the sibling
-# litearm-cpp source tree in-tree. The fallback is what makes a plain `colcon build` in
-# the parent directory work with no manual install step and no flags.
+# Preferred: an installed litearm (find_package). If there is none, build the litearm-cpp
+# source tree that sits beside this repository in the workspace in-tree. The fallback is
+# what makes a plain `colcon build` in the workspace root work with no manual install step
+# and no flags.
 #
 # Why the fallback is needed at all: litearm-cpp has no package.xml, so colcon treats it
 # as a plain CMake package named after its directory ("litearm-cpp"), builds it in
@@ -29,7 +30,10 @@ find_package(rclcpp_lifecycle REQUIRED)
 # of that, colcon builds it as a static, non-PIC archive, which a plugin shared object
 # cannot link. Building the tree here lets us choose a PIC build.
 # ─────────────────────────────────────────────────────────────────────────────
-set(LITEARM_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../litearm-cpp"
+# This package is one directory below the repository root, and the repository is checked
+# out beside litearm-cpp in the workspace source directory, so the SDK is two levels up
+# (`<ws>/src/litearm-ros2-control/litearm_ros2_control` -> `<ws>/src/litearm-cpp`).
+set(LITEARM_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../litearm-cpp"
   CACHE PATH "litearm-cpp source tree, used when no installed litearm package is found")
 
 find_package(litearm CONFIG QUIET)

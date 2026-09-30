@@ -32,10 +32,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          path: ws/src/litearm_ros2_control
+          # The package itself is at ws/src/litearm-ros2-control/litearm_ros2_control.
+          path: ws/src/litearm-ros2-control
 
-      # CMakeLists.txt builds the sibling litearm-cpp tree when no installed
-      # litearm package is found, so the SDK has to sit next to this package.
+      # CMakeLists.txt builds the litearm-cpp tree when no installed litearm package is
+      # found, so the SDK has to sit next to this repository in the workspace source
+      # directory: its default LITEARM_CPP_DIR is <package>/../../litearm-cpp.
       - name: Checkout litearm-cpp
         uses: actions/checkout@v4
         with:
@@ -99,5 +101,5 @@ jobs:
           test -s LICENSE
           python3 -c "import json; json.load(open('.releaserc.json'))"
           python3 -c "import json; json.load(open('.markdownlint.json'))"
-          python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('package.xml')"
+          python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('litearm_ros2_control/package.xml')"
           echo "repository standards OK"
