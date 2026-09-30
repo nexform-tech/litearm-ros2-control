@@ -1,0 +1,103 @@
+# Test gate for the litearm ros2_control plugin.
+#
+# Tests live in their own workflow: they run on pull requests, while the release
+# workflow runs on pushes to the default branch. Mixing the two means a broken
+# release blocks a pull request, or the reverse.
+#
+# AGENTS.md is deliberately not linted: it is canonical content synced from
+# repo-template and must not be edited here.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true # a superseded pull request run is pointless
+
+jobs:
+  # The job must be named `test`: that is the required status check.
+  test:
+    # Humble targets Ubuntu 22.04.
+    runs-on: ubuntu-22.04
+    container: ros:humble
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          path: ws/src/litearm_ros2_control
+
+      # CMakeLists.txt builds the sibling litearm-cpp tree when no installed
+      # litearm package is found, so the SDK has to sit next to this package.
+      - name: Checkout litearm-cpp
+        uses: actions/checkout@v4
+        with:
+          repository: nexform-tech/litearm-cpp
+          path: ws/src/litearm-cpp
+
+      # Installed by name rather than through rosdep: `depend>litearm</depend>`
+      # in package.xml is deliberately not a rosdep key.
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            cmake \
+            python3-colcon-common-extensions \
+            ros-humble-ament-cmake \
+            ros-humble-hardware-interface \
+            ros-humble-pluginlib \
+            ros-humble-rclcpp \
+            ros-humble-rclcpp-lifecycle \
+            ros-humble-ament-cmake-gtest
+
+      - name: Build
+        shell: bash
+        working-directory: ws
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon build --event-handlers console_direct+
+
+      - name: Test
+        shell: bash
+        working-directory: ws
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon test --event-handlers console_direct+
+          # `colcon test` reports success even when a test fails; this is the gate.
+          colcon test-result --verbose
+
+  # Repository standards and documentation. A separate job so that a broken build
+  # and a lint failure are distinguishable at a glance.
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Lint Markdown
+        run: npx --yes markdownlint-cli2@0.23.3 "README.md" "README.zh-CN.md"
+
+      - name: Validate repository standards
+        run: |
+          set -euo pipefail
+          test -s README.md
+          test -s README.zh-CN.md
+          test -s AGENTS.md
+          test -s LICENSE
+          python3 -c "import json; json.load(open('.releaserc.json'))"
+          python3 -c "import json; json.load(open('.markdownlint.json'))"
+          python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('package.xml')"
+          echo "repository standards OK"
