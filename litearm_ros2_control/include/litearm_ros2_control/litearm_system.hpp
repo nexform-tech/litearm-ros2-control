@@ -27,6 +27,17 @@
 //
 // Streaming contract
 // ------------------
+// A MOVE_JS frame whose dq is all zero is rejected whole (ERR{0x03,0x02}) when any target
+// is more than JS_ZERO_DQ_EPS (5 mrad, firmware 2026-09-24) from the measurement -- and a
+// rejected frame does not feed the watchdog. Under dq=0 the firmware freezes its own
+// reference, so stream_command() fills the position field with the measured position in
+// that case; a real trajectory carries a non-zero dq and is sent as commanded.
+//
+// A command frame the firmware refuses does not feed that watchdog, but write() keeps
+// streaming and only stops the controllers after kWriteFailureLimit consecutive refusals.
+// PARK (SET_MOTION_MODE 0) is declared once the first frame is through, so a command stream
+// that stops without this process running its shutdown still holds at full stiffness.
+//
 // The firmware command watchdog trips after 100 ms without a command, so write() has to
 // keep re-sending. A controller_manager update rate of 100 Hz or more satisfies that
 // automatically. DO NOT let the update loop stall for more than ~100 ms while active:
@@ -166,6 +177,11 @@ private:
   /// Copy one status frame, in URDF joint order, into the state interfaces.
   void apply_state(const litearm::RobotState & state);
 
+  /// Read the cached status frame into the state interfaces and refuse to go on when it
+  /// is missing or carries a non-finite reading. `when` names the point in the lifecycle
+  /// for the message ('before enabling' / 'after enabling').
+  bool refresh_state(const char * when);
+
   /// Set the command reference to the measured position (q_ref := q, dq_ref := 0).
   void latch_command_to_measured();
 
@@ -179,6 +195,10 @@ private:
   std::string port_;
   bool export_diagnostics_ = true;
   bool auto_enable_ = true;
+  // Clear a latched arm fault during on_configure. Off by default: a latched EMERGENCY or
+  // joint_fault is the firmware asking for a human decision. A deployment that wants its
+  // start-up to be one command turns it on through the URDF parameter.
+  bool reset_faults_on_configure_ = false;
   bool disable_on_shutdown_ = false;
   int enable_attempts_ = 12;
 
@@ -205,8 +225,23 @@ private:
   std::vector<double> fw_velocity_;
 
   bool have_state_ = false;
+  // Whether the last status frame carried a finite reading for every declared joint. A
+  // faulted or disabled axis reports NaN, and latching that as the command reference sends
+  // a frame the firmware rejects (ERR 03,02) -- so activation checks this first.
+  bool state_finite_ = false;
+  // The status frame's enabled bit (firmware flags bit9). The ENABLE ACK only means the
+  // request was registered; the frame is what says the motors are actually on.
+  bool state_enabled_ = false;
+  std::size_t nonfinite_axis_ = 0;   // 1-based axis of the first non-finite reading
+  int nonfinite_error_ = 0;          // that axis's firmware error byte, for the log
+  bool nonfinite_reported_ = false;  // one message per episode, not one per frame
   double last_feedback_stamp_ = 0.0;  // SDK arrival time of the last status frame (s)
   bool reported_disconnected_ = false;
+  // Consecutive refused command frames. A refusal does not feed the firmware watchdog, so
+  // one is survivable and the next tick retries; a run of them means the link or the
+  // firmware really is gone and the controllers have to stop.
+  int write_failures_ = 0;
+  bool write_recovering_ = false;
 
   rclcpp::Logger logger_ = rclcpp::get_logger("LitearmSystem");
 };

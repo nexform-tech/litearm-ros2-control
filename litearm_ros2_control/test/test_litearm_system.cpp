@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -258,9 +259,14 @@ TEST(LitearmSystemLifecycle, CommandReachesAxisOrderedByNameNotByUrdfPosition)
   ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
 
   // Distinct reference per URDF joint: 100 for permuted index 0, 101 for index 1, ...
+  //
+  // A non-zero dq is required for the position field to be sent as written: with dq all
+  // zero the firmware rejects any target that is more than 5 mrad from the measurement
+  // (JS_ZERO_DQ_EPS), and stream_command() therefore substitutes the measurement.
   for (std::size_t i = 0; i < permuted.size(); ++i)
   {
     command[2u * i].set_value(100.0 + static_cast<double>(i));
+    command[2u * i + 1u].set_value(0.5);
   }
 
   const auto time = rclcpp::Time(0);
@@ -279,6 +285,146 @@ TEST(LitearmSystemLifecycle, CommandReachesAxisOrderedByNameNotByUrdfPosition)
   }
 
   ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemLifecycle, WriteToleratesARefusedFrame)
+{
+  // A refused frame does not feed the watchdog, but it must not stop the controllers: the
+  // next tick feeds again. Only a run of failures escalates (kWriteFailureLimit).
+  TestSystem sys(std::vector<double>(7, 0.1));
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  const auto time = rclcpp::Time(0);
+  const auto period = rclcpp::Duration::from_seconds(0.01);
+  sys.fake()->push_frame(
+    litearm::proto::RSP_ERR,
+    std::vector<uint8_t>{litearm::proto::CMD_MOVE_JS, 0x02});
+  EXPECT_EQ(sys.write(time, period), hardware_interface::return_type::OK);
+  EXPECT_EQ(sys.write(time, period), hardware_interface::return_type::OK);
+
+  ASSERT_EQ(sys.on_deactivate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemLifecycle, DeclaresParkOnceActivated)
+{
+  // PARK is what makes an unexpected stop (crash, cable) hold at full stiffness instead of
+  // the fail-soft 0.6x sag, so it has to be declared at activation, not only on shutdown.
+  TestSystem sys(std::vector<double>(7, 0.1));
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  EXPECT_EQ(sys.fake()->stamps_of(litearm::proto::CMD_SET_MOTION_MODE).size(), 1u);
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemLifecycle, RetriesTheSeedFrameAfterARefusal)
+{
+  // The firmware refuses the first frame after enabling when a zero-dq target is more than
+  // 5 mrad from its measurement (ERR{0x03,0x02}). One refusal must not fail the activation:
+  // Humble's controller_manager aborts the whole node when hardware activation fails.
+  const std::vector<double> measured(7, 0.1);
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  // Queue the refusal so the first move_js meets it; the retry then sees a normal ACK.
+  sys.fake()->push_frame(
+    litearm::proto::RSP_ERR,
+    std::vector<uint8_t>{litearm::proto::CMD_MOVE_JS, 0x02});
+
+  EXPECT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  EXPECT_FALSE(sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).empty());
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemLifecycle, ZeroVelocityFrameCarriesTheMeasuredPosition)
+{
+  // Firmware gate (2026-09-24): a MOVE_JS frame with dq all zero and a target more than
+  // JS_ZERO_DQ_EPS (5 mrad) from the measurement is rejected whole with ERR{0x03,0x02}.
+  // Under dq=0 the firmware freezes its own reference and ignores the position field, so
+  // the frame must carry the measurement instead of the unreachable target.
+  const std::vector<double> measured{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7};
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  auto command = sys.export_command_interfaces();
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  for (std::size_t i = 0; i < measured.size(); ++i)
+  {
+    command[2u * i].set_value(measured[i] + 1.0);  // far beyond the 5 mrad gate
+  }
+  ASSERT_EQ(sys.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  const auto frame = last_move_js(sys, 2u * measured.size());
+  ASSERT_EQ(frame.size(), 2u * measured.size());
+  for (std::size_t i = 0; i < measured.size(); ++i)
+  {
+    EXPECT_NEAR(frame[i], measured[i], 1e-6) << "q_ref axis " << i;
+    EXPECT_DOUBLE_EQ(frame[measured.size() + i], 0.0) << "dq_ref axis " << i;
+  }
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemLifecycle, ResetFaultsOnConfigureIsOptIn)
+{
+  const std::vector<double> measured(7, 0.1);
+  const auto time = rclcpp::Time(0);
+  const auto period = rclcpp::Duration::from_seconds(0.01);
+
+  // Off (the default): configure must not touch the firmware's fault latch.
+  {
+    TestSystem sys(measured);
+    ASSERT_EQ(sys.on_init(make_info(seven_joints(), {{"port", "fake"}})),
+              CallbackReturn::SUCCESS);
+    ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+    EXPECT_EQ(sys.fake()->stamps_of(litearm::proto::CMD_RESET).size(), 0u);
+    ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  }
+
+  // On: one CMD_RESET, sent while configuring and before anything is enabled.
+  {
+    TestSystem sys(measured);
+    const auto info = make_info(
+      seven_joints(), {{"port", "fake"}, {"reset_faults_on_configure", "true"},
+                       {"auto_enable", "false"}});
+    ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+    ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+    EXPECT_EQ(sys.fake()->stamps_of(litearm::proto::CMD_RESET).size(), 1u);
+    EXPECT_EQ(sys.fake()->stamps_of(litearm::proto::CMD_ENABLE).size(), 0u);
+    ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+    ASSERT_EQ(sys.read(time, period), hardware_interface::return_type::OK);
+    ASSERT_EQ(sys.on_deactivate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+    ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  }
+}
+
+TEST(LitearmSystemLifecycle, RefusesToActivateOnANonFiniteStatusFrame)
+{
+  // A faulted axis reports NaN. Before the guard existed, this NaN was latched as the
+  // command reference and the firmware rejected the first frame (ERR 03,02), which on a
+  // real arm ended in controller_manager aborting with an unrelated-looking message.
+  std::vector<double> measured{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7};
+  measured[2] = std::numeric_limits<double>::quiet_NaN();
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  EXPECT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::ERROR);
+
+  // The refusal has to come before anything is streamed: no MOVE_JS frame may exist.
+  EXPECT_TRUE(last_move_js(sys, 2u * 7u).empty());
 }
 
 TEST(LitearmSystemLifecycle, ConfigureFailsWhenAxisCountDoesNotMatchUrdf)
