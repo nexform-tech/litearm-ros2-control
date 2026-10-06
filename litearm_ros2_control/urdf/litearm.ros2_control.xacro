@@ -1,0 +1,150 @@
+<?xml version="1.0"?>
+<!--
+  litearm.ros2_control.xacro — the ros2_control hardware declaration for the
+  direct-USB stack.
+
+  This file declares the component only; the kinematics and the geometry come
+  from the description package (`litearm`). A deployment includes both, usually
+  through urdf/litearm.urdf.xacro in this package.
+
+  Interface surface (matches the component's own documentation):
+    command: position, velocity  -> the firmware's MOVE_JS (q_ref, dq_ref)
+    state:   position, velocity, effort, plus diagnostics
+
+  Every <param> is fed by a xacro argument of the same name with a `litearm_`
+  prefix, so a launch file can override any of them without editing this file.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="litearm_port" default=""/>
+  <xacro:arg name="litearm_auto_enable" default="true"/>
+  <xacro:arg name="litearm_enable_attempts" default="12"/>
+  <xacro:arg name="litearm_disable_on_shutdown" default="false"/>
+  <xacro:arg name="litearm_export_diagnostics" default="true"/>
+  <xacro:arg name="litearm_reset_faults_on_configure" default="false"/>
+
+  <ros2_control name="LitearmSystem" type="system">
+    <hardware>
+      <plugin>litearm_ros2_control/LitearmSystem</plugin>
+
+      <!-- Empty means auto-discovery by VID:PID 1d50:606f. -->
+      <param name="port">$(arg litearm_port)</param>
+      <param name="auto_enable">$(arg litearm_auto_enable)</param>
+      <param name="enable_attempts">$(arg litearm_enable_attempts)</param>
+      <param name="disable_on_shutdown">$(arg litearm_disable_on_shutdown)</param>
+      <param name="export_diagnostic_interfaces">$(arg litearm_export_diagnostics)</param>
+
+      <!-- Clear a latched arm fault while configuring. Off in the URDF itself; a launch
+           turns it on (litearm_control.launch.py: clear_faults:=true) so a bring-up after a
+           fault is still one command. -->
+      <param name="reset_faults_on_configure">$(arg litearm_reset_faults_on_configure)</param>
+    </hardware>
+
+    <!-- The joint names must be joint1..jointN, one per axis: the name is the
+         contract that maps a URDF joint to a firmware axis, so the order of the
+         <joint> elements does not matter. N must equal the axis count the
+         firmware reports (7 for the arm, 1 for the bench). -->
+    <joint name="joint1">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+      <!-- Diagnostics are opt-in: joint_state_broadcaster does not claim them,
+           so controller_manager reports them as unclaimed on activation, which
+           is expected. This block follows the parameter, or the component would
+           export fewer interfaces than the URDF declares. -->
+      <xacro:if value="$(arg litearm_export_diagnostics)">
+        <state_interface name="temperature_mos"/>
+        <state_interface name="temperature_coil"/>
+        <state_interface name="error_code"/>
+        <state_interface name="feedback_age"/>
+      </xacro:if>
+    </joint>
+
+    <joint name="joint2">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+      <xacro:if value="$(arg litearm_export_diagnostics)">
+        <state_interface name="temperature_mos"/>
+        <state_interface name="temperature_coil"/>
+        <state_interface name="error_code"/>
+        <state_interface name="feedback_age"/>
+      </xacro:if>
+    </joint>
+
+    <joint name="joint3">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+      <xacro:if value="$(arg litearm_export_diagnostics)">
+        <state_interface name="temperature_mos"/>
+        <state_interface name="temperature_coil"/>
+        <state_interface name="error_code"/>
+        <state_interface name="feedback_age"/>
+      </xacro:if>
+    </joint>
+
+    <joint name="joint4">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+      <xacro:if value="$(arg litearm_export_diagnostics)">
+        <state_interface name="temperature_mos"/>
+        <state_interface name="temperature_coil"/>
+        <state_interface name="error_code"/>
+        <state_interface name="feedback_age"/>
+      </xacro:if>
+    </joint>
+
+    <joint name="joint5">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+      <xacro:if value="$(arg litearm_export_diagnostics)">
+        <state_interface name="temperature_mos"/>
+        <state_interface name="temperature_coil"/>
+        <state_interface name="error_code"/>
+        <state_interface name="feedback_age"/>
+      </xacro:if>
+    </joint>
+
+    <joint name="joint6">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+      <xacro:if value="$(arg litearm_export_diagnostics)">
+        <state_interface name="temperature_mos"/>
+        <state_interface name="temperature_coil"/>
+        <state_interface name="error_code"/>
+        <state_interface name="feedback_age"/>
+      </xacro:if>
+    </joint>
+
+    <joint name="joint7">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+      <xacro:if value="$(arg litearm_export_diagnostics)">
+        <state_interface name="temperature_mos"/>
+        <state_interface name="temperature_coil"/>
+        <state_interface name="error_code"/>
+        <state_interface name="feedback_age"/>
+      </xacro:if>
+    </joint>
+  </ros2_control>
+
+</robot>
