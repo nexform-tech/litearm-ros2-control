@@ -8,6 +8,17 @@ SDK。没有辅助进程，也没有共享内存：`read()` 取 SDK 缓存好的
 `MOVE_JS` 伺服把指令参考发回去。轨迹规划、正逆运动学与动力学都留在固件里 —— 上位机只发关节参考、
 读状态。
 
+## 包组成
+
+| 包 | 是什么 |
+| --- | --- |
+| `litearm_ros2_control` | ros2_control 的 `SystemInterface` 插件：控制通路，由 `joint_trajectory_controller` 或 MoveIt 2 驱动。 |
+| `litearm_driver` | 独立生命周期节点，自己持有同一条 USB 链路，把 SDK 的管理类指令以服务形式暴露出来。只能**替代**控制栈运行，不能与之并存。 |
+| `litearm_msgs` | `litearm_driver` 使用的消息与服务定义。 |
+
+控制栈与驱动节点互斥：两者都会打开同一个串口，SDK 会对其加独占锁。驱动的完整指令集见
+[docs/command-set.md](docs/command-set.md)。
+
 ## 特点
 
 - **一根线，无需守护进程。** controller manager 直接与固件通信。
@@ -163,6 +174,20 @@ arm_controller:
 还要清楚在进程内直接驱动机械臂的取舍：`write()` 会进到 SDK，写一帧并等固件 ACK，上限是 SDK 自己的
 1.2 s 超时。链路健康时这是亚毫秒级，但 USB 链路卡住时可能把控制循环堵到那个上限。若需要与 USB 隔离
 的硬实时循环，请改用共享内存 + 守护进程的方案驱动机械臂。
+
+## 维护驱动
+
+`litearm_driver` 是接触机械臂的第二条通路。它自己打开 USB 链路，把 SDK 的管理类调用暴露为服务：
+使能、park、清故障、进入零重力、调全局速度倍率与前馈、读写关节参数表、读取与激活授权、进入 DFU。
+
+```bash
+ros2 launch litearm_driver litearm_driver.launch.py
+ros2 service call /litearm/get_status litearm_msgs/srv/GetStatus "{timeout: 0.5}"
+ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: true}"
+```
+
+**不要让驱动节点与控制栈同时运行。** 驱动面向维护与开机验收，不做运动控制：轨迹、伺服、遥操作
+仍然留在控制通路里。每个服务、每条拒绝规则及其原因见 [docs/command-set.md](docs/command-set.md)。
 
 ## 测试
 

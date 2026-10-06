@@ -1,0 +1,15 @@
+# Read the device licence record (firmware CMD_GET_LICENSE).
+#
+# An unactivated arm answers everything except ENABLE, so this service succeeds on an
+# unactivated device: "not activated" is a state, not an error.
+
+---
+bool success
+string message
+
+uint8 state
+string state_name
+uint32 cust_id
+uint32 issued          # YYYYMMDD, 0 while unactivated
+uint32 flags           # bit0 = factory code
+string uid_hex         # 24 lowercase hex characters

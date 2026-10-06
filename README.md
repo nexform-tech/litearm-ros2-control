@@ -10,6 +10,18 @@ shared memory: `read()` consumes the SDK's cached 100 Hz status frame, and `writ
 command reference back with the firmware's `MOVE_JS` servo. Trajectory planning, kinematics and
 dynamics all stay in the firmware — the host sends joint references and reads state back.
 
+## Packages
+
+| Package | What it is |
+| --- | --- |
+| `litearm_ros2_control` | The ros2_control `SystemInterface` plugin: the control path, driven by `joint_trajectory_controller` or MoveIt 2. |
+| `litearm_driver` | A standalone lifecycle node that owns the same USB link and exposes the SDK's administrative command set as services. Run it instead of the control stack, never next to it. |
+| `litearm_msgs` | The message and service definitions used by `litearm_driver`. |
+
+The control stack and the driver are mutually exclusive: both open the same serial port and
+the SDK takes an exclusive lock on it. The driver's full command set is in
+[docs/command-set.md](docs/command-set.md).
+
 ## Highlights
 
 - **One cable, no daemon.** The controller manager talks to the firmware directly.
@@ -173,6 +185,24 @@ frame and waits for the firmware ACK, bounded by the SDK's own 1.2 s timeout. On
 is sub-millisecond, but a stalled USB link can stall the controller loop for up to that timeout. If
 you need a hard real-time loop isolated from USB, run the arm through a shared-memory daemon variant
 instead.
+
+## Maintenance driver
+
+`litearm_driver` is the second way to reach the arm. It opens the USB link itself and
+exposes the SDK's administrative calls as services: enable, park, clear faults, enter zero
+gravity, tune the speed governor and the feedforward terms, read and write the joint
+parameter table, read and activate the licence, and enter DFU.
+
+```bash
+ros2 launch litearm_driver litearm_driver.launch.py
+ros2 service call /litearm/get_status litearm_msgs/srv/GetStatus "{timeout: 0.5}"
+ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: true}"
+```
+
+**Do not run the driver and the ros2_control stack at the same time.** The driver is for
+maintenance and bring-up, not for motion control: trajectories, servo and teleoperation
+stay in the control path. See [docs/command-set.md](docs/command-set.md) for every
+service, the refusals and the reason for each one.
 
 ## Tests
 
