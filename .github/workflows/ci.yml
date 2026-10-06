@@ -111,6 +111,7 @@ jobs:
           test -s AGENTS.md
           test -s LICENSE
           test -s docs/command-set.md
+          test -s docs/command-set.zh-CN.md
           python3 -c "import json; json.load(open('.releaserc.json'))"
           python3 -c "import json; json.load(open('.markdownlint.json'))"
           for manifest in litearm_ros2_control/package.xml litearm_driver/package.xml litearm_msgs/package.xml; do

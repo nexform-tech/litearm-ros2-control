@@ -2,7 +2,8 @@
 
 This is the reference for every ROS 2 interface `litearm_driver` exposes and what each one
 does to the arm; read it when you operate an arm without the ros2_control stack, or when
-you write a client against the driver.
+you write a client against the driver. The Chinese reference is
+[`docs/command-set.zh-CN.md`](command-set.zh-CN.md); the English version here is canonical.
 
 Verification status: the service names, types, request handling, refusals and the status
 message are covered by the offline test suite (`colcon test --packages-select litearm_driver`).

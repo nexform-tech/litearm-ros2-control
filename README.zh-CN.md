@@ -17,7 +17,7 @@ SDK。没有辅助进程，也没有共享内存：`read()` 取 SDK 缓存好的
 | `litearm_msgs` | `litearm_driver` 使用的消息与服务定义。 |
 
 控制栈与驱动节点互斥：两者都会打开同一个串口，SDK 会对其加独占锁。驱动的完整指令集见
-[docs/command-set.md](docs/command-set.md)。
+[docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)（英文原文为 [command-set.md](docs/command-set.md)）。
 
 ## 特点
 
@@ -187,7 +187,7 @@ ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: true}"
 ```
 
 **不要让驱动节点与控制栈同时运行。** 驱动面向维护与开机验收，不做运动控制：轨迹、伺服、遥操作
-仍然留在控制通路里。每个服务、每条拒绝规则及其原因见 [docs/command-set.md](docs/command-set.md)。
+仍然留在控制通路里。每个服务、每条拒绝规则及其原因见 [docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)（英文原文为 [command-set.md](docs/command-set.md)）。
 
 ## 测试
 
