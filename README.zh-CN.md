@@ -187,7 +187,7 @@ ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: true}"
 ```
 
 **不要让驱动节点与控制栈同时运行。** 驱动面向维护与开机验收，不做运动控制：轨迹、伺服、遥操作
-仍然留在控制通路里。每个服务、每条拒绝规则及其原因见 [docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)（英文原文为 [command-set.md](docs/command-set.md)）。
+仍然留在控制通路里。每个服务与字段见 [litearm_driver/README.zh-CN.md](litearm_driver/README.zh-CN.md)，每条拒绝规则及其原因见 [docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)。
 
 ## 测试
 

@@ -100,7 +100,7 @@ jobs:
           npx --yes markdownlint-cli2@0.23.3 \
             "README.md" "README.zh-CN.md" \
             "docs/*.md" \
-            "litearm_driver/README.md" \
+            "litearm_driver/README.md" "litearm_driver/README.zh-CN.md" \
             "litearm_msgs/README.md"
 
       - name: Validate repository standards
