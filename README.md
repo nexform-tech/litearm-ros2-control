@@ -201,8 +201,8 @@ ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: true}"
 
 **Do not run the driver and the ros2_control stack at the same time.** The driver is for
 maintenance and bring-up, not for motion control: trajectories, servo and teleoperation
-stay in the control path. See [docs/command-set.md](docs/command-set.md) for every
-service, the refusals and the reason for each one.
+stay in the control path. See [litearm_driver/README.md](litearm_driver/README.md) for every service and field,
+and [docs/command-set.md](docs/command-set.md) for the refusals and the reason behind them.
 
 ## Tests
 

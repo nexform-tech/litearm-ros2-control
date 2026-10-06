@@ -2,7 +2,7 @@
 
 本文是 [`docs/command-set.md`](command-set.md) 的中文对照，逐条说明 `litearm_driver` 暴露的每个
 ROS 2 接口对机械臂做了什么；在不跑 ros2_control 控制栈时操作机械臂，或为驱动写客户端时看它。
-两份文档不一致时，以英文版为准。
+两份文档不一致时，以英文版为准。字段级接口参考见 [litearm_driver/README.zh-CN.md](../litearm_driver/README.zh-CN.md)。
 
 验证状态：服务名、服务类型、请求处理、拒绝路径与状态消息都由离线测试套件覆盖
 （`colcon test --packages-select litearm_driver`）。下文的 `ros2` 命令行是**经测试的接口契约**；
