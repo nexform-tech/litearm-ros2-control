@@ -25,6 +25,9 @@ The launch file puts the node in the `litearm` namespace, so its relative servic
 become `/litearm/enable`, `/litearm/clear_faults` and so on. Every service name below is
 written relative to that namespace.
 
+For the whole bring-up — this node and the ros2_control stack, with the arguments of each —
+see [`docs/quickstart.md`](../docs/quickstart.md).
+
 ## Command set
 
 The node exposes 55 services in ten groups, three topics and 14 parameters. Every service

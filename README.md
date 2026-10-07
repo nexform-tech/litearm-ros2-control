@@ -19,8 +19,10 @@ dynamics all stay in the firmware — the host sends joint references and reads 
 | `litearm_msgs` | The message and service definitions used by `litearm_driver`. |
 
 The control stack and the driver are mutually exclusive: both open the same serial port and
-the SDK takes an exclusive lock on it. The driver's full command set is in [docs/command-set.md](docs/command-set.md), with a
-Chinese reference in [docs/command-set.zh-CN.md](docs/command-set.zh-CN.md).
+the SDK takes an exclusive lock on it. Start with [docs/quickstart.md](docs/quickstart.md) for
+the commands that bring either one up; the driver's full command set is in
+[docs/command-set.md](docs/command-set.md), with a Chinese reference in
+[docs/command-set.zh-CN.md](docs/command-set.zh-CN.md).
 
 ## Highlights
 

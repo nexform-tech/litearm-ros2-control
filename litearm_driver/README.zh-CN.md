@@ -21,6 +21,9 @@ ros2 service call /litearm/get_status litearm_msgs/srv/GetStatus "{timeout: 0.5}
 launch 文件把节点放在 `litearm` 命名空间下，因此相对服务名会变成 `/litearm/enable`、
 `/litearm/clear_faults` 等。下文所有服务名都相对于该命名空间书写。
 
+整套启动（本节点与 ros2_control 栈，含各自参数）见
+[`docs/quickstart.zh-CN.md`](../docs/quickstart.zh-CN.md)。
+
 ## 指令集
 
 节点提供 10 组共 55 个服务、3 个话题与 14 个参数。每个服务都返回 `success` 与 `message`；失败时

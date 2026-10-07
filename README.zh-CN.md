@@ -16,8 +16,10 @@ SDK。没有辅助进程，也没有共享内存：`read()` 取 SDK 缓存好的
 | `litearm_driver` | 独立生命周期节点，自己持有同一条 USB 链路，把 SDK 的管理类指令以服务形式暴露出来。只能**替代**控制栈运行，不能与之并存。 |
 | `litearm_msgs` | `litearm_driver` 使用的消息与服务定义。 |
 
-控制栈与驱动节点互斥：两者都会打开同一个串口，SDK 会对其加独占锁。驱动的完整指令集见
-[docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)（英文原文为 [command-set.md](docs/command-set.md)）。
+控制栈与驱动节点互斥：两者都会打开同一个串口，SDK 会对其加独占锁。启动命令见
+[docs/quickstart.zh-CN.md](docs/quickstart.zh-CN.md)（英文原文为 [quickstart.md](docs/quickstart.md)）；
+驱动的完整指令集见 [docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)
+（英文原文为 [command-set.md](docs/command-set.md)）。
 
 ## 特点
 
