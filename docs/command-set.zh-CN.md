@@ -44,8 +44,8 @@ deactivate（`ros2 lifecycle set /litearm/driver deactivate`）会撤销全部�
 
 ### 2.1 参数
 
-每个参数都有默认值。节点在 configure 时读取它们，例外是 `allow_dfu`、
-`allow_license_activation` 和 `zero_g_keepalive_period_s`：这三个在**每次调用时重新读取**，
+每个参数都有默认值。节点在 configure 时读取它们，例外是 `allow_dfu`、`allow_motion`
+和 `zero_g_keepalive_period_s`：这三个在**每次调用时重新读取**，
 所以 `ros2 param set` 立即生效。
 
 | 参数 | 默认值 | 含义 |
@@ -61,7 +61,8 @@ deactivate（`ros2 lifecycle set /litearm/driver deactivate`）会撤销全部�
 | `diagnostics_rate_hz` | `1.0` | `/diagnostics` 发布频率。 |
 | `zero_g_keepalive_period_s` | `0.04` | 零重力保活周期，取值 `[0.005, 0.10)`。 |
 | `allow_dfu` | `false` | `enter_dfu` 的开关。 |
-| `allow_license_activation` | `false` | `activate_license` 的开关。 |
+| `allow_motion` | `false` | 所有运动服务（`move_j`、`move_j_sync`、`move_p`、`move_js`、`send_mit`、`send_mit_all`、`home`、`move_l`、`move_c`、`move_path`）的开关。 |
+| `log_dir` | `""` | `log_dump` 的落盘目录。留空表示 `$HOME/.ros/litearm`。 |
 | `frame_id` | `""` | 状态与关节状态消息的 header frame id。 |
 
 ## 3. 话题
@@ -97,23 +98,19 @@ ros2 service call /litearm/clear_faults std_srvs/srv/Trigger "{}"
 ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: true}"
 ```
 
-### 4.2 状态与授权
+### 4.2 状态
 
 | 服务 | 类型 | 作用 |
 | --- | --- | --- |
 | `get_status` | `litearm_msgs/srv/GetStatus` | 发一次 `GET_STATUS` 并返回一条 `LitearmStatus`。`timeout <= 0` 表示立刻返回缓存帧。被动状态流静默、又需要一个带超时上限的"还活着"证据时用它。 |
-| `get_license` | `litearm_msgs/srv/GetLicense` | 读取设备授权记录。未激活的臂也正常应答："未激活"是一种状态，不是错误。 |
-| `activate_license` | `litearm_msgs/srv/ActivateLicense` | 提交厂商签发的授权凭据。需要 `allow_license_activation:=true` 且电机已失能。先读 `get_license`：签发工具必须使用该记录里的设备 UID。 |
 
 ```bash
 ros2 service call /litearm/get_status litearm_msgs/srv/GetStatus "{timeout: 0.5}"
-ros2 param set /litearm/driver allow_license_activation true
-ros2 service call /litearm/activate_license litearm_msgs/srv/ActivateLicense \
-  "{cust_id: 7, issued: 20261006, flags: 0, mac: [171, 171, 171, 171, 171, 171, 171, 171, \
-  171, 171, 171, 171, 171, 171, 171, 171]}"
+ros2 service call /litearm/get_tcp litearm_msgs/srv/GetTcp "{}"
 ```
 
-`mac` 由厂商签发工具产生。本仓不计算、也不保存任何密钥材料。
+授权记录只会在节点 configure 时读一次，并体现在状态消息的授权字段里；这里没有对应服务，
+也不能通过本节点激活授权。
 
 ### 4.3 运动配置
 
@@ -180,6 +177,59 @@ ros2 service call /litearm/enter_dfu std_srvs/srv/Trigger "{}"
 
 **不要**为了"试一下"调用 `enter_dfu`：设备会重新枚举成 `0483:DF11`，必须烧入固件才能回来。
 
+### 4.7 运动（`allow_motion`）
+
+| 服务 | 类型 | 作用 |
+| --- | --- | --- |
+| `move_j` / `move_j_sync` | `litearm_msgs/srv/MoveJ` / `MoveJSync` | 关节空间移动：逐轴 S 曲线，或各轴共用一条同步曲线。会阻塞到固件报告移动结束。 |
+| `move_p` | `litearm_msgs/srv/MoveP` | 位姿移动：固件自己解 IK 并走曲线；`wait=false` 时用 `poll_cart` 查结局。 |
+| `move_js` | `litearm_msgs/srv/MoveJs` | 一帧 MOVE_JS。`dq` 同时是位置参考的斜率上限；`dq` 全 0 会让固件冻结自己的参考；带 `tau_ff` 会关掉该帧的内置前馈。 |
+| `send_mit` / `send_mit_all` | `litearm_msgs/srv/SendMit` / `SendMitAll` | 原始 MIT 透传：增益按给的值直达电机，固件不叠加前馈。 |
+| `home` | `std_srvs/srv/Trigger` | 以固件自己的低速走回 URDF 零位。 |
+| `move_l` / `move_c` / `move_path` | `litearm_msgs/srv/MoveL` / `MoveC` / `MovePath` | 固件原生笛卡尔规划：直线、过途经点的圆弧、多路点路径；回执带规划报告。 |
+
+```bash
+ros2 param set /litearm/driver allow_motion true
+ros2 service call /litearm/move_j litearm_msgs/srv/MoveJ "{q: [0, 0, 0, 0, 0, 0, 0], speed: 0.2}"
+```
+
+⚠ 这一组全部需要 `allow_motion:=true`，且该参数每次调用重新读取。`move_js`、`send_mit`、
+`send_mit_all` 都是**单帧**：固件的 100 ms 看门狗会在没人持续重发时把臂交回持位——持续重发是
+`litearm_ros2_control` 做的事，这个驱动不做。
+
+### 4.8 解算
+
+| 服务 | 类型 | 作用 |
+| --- | --- | --- |
+| `inverse_kinematics` | `litearm_msgs/srv/InverseKinematics` | 位姿解算成关节角。不产生运动，因此**不受** `allow_motion` 限制。 |
+| `poll_cart` | `litearm_msgs/srv/PollCart` | 查询 `wait=false` 的笛卡尔请求：固件给出结论前 `pending` 为真。 |
+
+### 4.9 动力学模型存储
+
+| 服务 | 类型 | 作用 |
+| --- | --- | --- |
+| `probe_model` | `litearm_msgs/srv/ProbeModel` | 这个固件是否应答模型存储命令。 |
+| `get_model_body` / `set_model_body` / `get_model_jm` / `set_model_jm` | `litearm_msgs/srv/GetModelBody` / `SetModelBody` / `GetModelJm` / `SetModelJm` | 读刚体或关节空间模型项，或把它们暂存进 RAM。 |
+| `commit_model` | `litearm_msgs/srv/CommitModel` | 把暂存固化到 flash：要求电机已失能，且 `expected_mask` 必须与固件暂存的掩码一致。 |
+| `revert_model` | `std_srvs/srv/Trigger` | 丢弃暂存。 |
+| `get_model_status` | `litearm_msgs/srv/GetModelStatus` | 覆写级别、暂存掩码与 dirty 标志——即 `commit_model` 需要的那个掩码。 |
+
+### 4.10 诊断与链路
+
+| 服务 | 类型 | 作用 |
+| --- | --- | --- |
+| `reconnect` | `std_srvs/srv/Trigger` | 拔插线缆后重建会话，并重读授权记录。 |
+| `get_diagnostics` | `litearm_msgs/srv/GetDiagnostics` | 主机计数器（`dropped`、`bad_status_frames`、`flush_failures`、笛卡尔配对计数）、各 id 报文速率、`cart_supported` 与身份字段。 |
+| `kin_bench` | `litearm_msgs/srv/KinBench` | 固件的运动学基准：它自己的文本、打印出的耗时与它点名的计数器。计数器为 0 表示「没上报」，不是「没出错」。 |
+
+### 4.11 控制拍日志
+
+| 服务 | 类型 | 作用 |
+| --- | --- | --- |
+| `log_start` | `litearm_msgs/srv/LogStart` | 录制指定拍数的 300 Hz 控制拍（每拍 `tick`、每轴 `q_ref`/`dq`/`tau`）；缓冲满了固件自停。 |
+| `log_stop` | `std_srvs/srv/Trigger` | 停止录制。 |
+| `log_dump` | `litearm_msgs/srv/LogDump` | 读回录制并把原始数据块写进节点的 `log_dir`。`filename` 只能是文件名，路径会被拒。 |
+
 ## 5. 拒绝规则及其含义
 
 每条拒绝都会点名被拒的参数、数值或操作。门禁在构造任何帧**之前**执行，因此被拒的调用不会在链路上
@@ -203,11 +253,12 @@ ros2 service call /litearm/enter_dfu std_srvs/srv/Trigger "{}"
 
 | 能力 | 现在放在哪里 | 为什么 |
 | --- | --- | --- |
-| 轨迹执行（`movej`、`movej_sync`、`move_p`、`home`） | `litearm_ros2_control` + `joint_trajectory_controller` | 运动控制属于 ros2_control 栈，它持有实时循环与关节接口。 |
-| 笛卡尔伺服与遥操作 | MoveIt Servo + 自定义控制器（工作区里的 `litearm_servo_control`） | 伺服需要命令通路上有控制器，而不是一个每次只交接一个位姿的服务。 |
-| 固件笛卡尔规划（`move_l`、`move_c`、`move_path`） | 未接入 ROS | 它是一次性规划、且必须串行使用；未来用 action 接口才是正确的形态，并且不能与主机侧伺服在同一台臂上混用。 |
-| 模型导入、日志采集、`kin_bench` | SDK CLI 与诊断脚本 | 长时间或大批量传输，不该放进一次服务调用。 |
+| 笛卡尔伺服与遥操作 | MoveIt Servo + 自定义控制器（工作区里的 `litearm_servo_control`） | 伺服需要命令通路上有控制器，而不是一个每次只交接一个位姿的服务，也不能和一次性规划器共用同一台臂。 |
+| 授权激活 | 厂商签发工具，在 ROS 之外 | 凭据签给哪个 UID 可以从状态消息里读到；提交凭据是产线工序，不是维护调用。 |
 | 控制栈运行时的关节状态发布 | `joint_state_broadcaster` | 同一个 `joint_states` 话题上两个发布者会让机械臂状态产生歧义；驱动自己的发布器默认关闭。 |
+
+轨迹执行、固件笛卡尔规划、模型存储与控制拍日志**已经暴露**（4.7 到 4.11 节）。运动那一组放在
+`allow_motion:=true` 之后，因为其中任何一个都能让机械臂动起来，而执行期间只有这个驱动持有串口。
 
 ## 7. 错误、超时与链路
 

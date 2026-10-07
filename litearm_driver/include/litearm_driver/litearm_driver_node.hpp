@@ -26,10 +26,8 @@
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <litearm_msgs/msg/litearm_status.hpp>
-#include <litearm_msgs/srv/activate_license.hpp>
 #include <litearm_msgs/srv/get_feedforward_scalar.hpp>
 #include <litearm_msgs/srv/get_joint_params.hpp>
-#include <litearm_msgs/srv/get_license.hpp>
 #include <litearm_msgs/srv/get_status.hpp>
 #include <litearm_msgs/srv/set_feedforward_mask.hpp>
 #include <litearm_msgs/srv/set_feedforward_preset.hpp>
@@ -40,6 +38,35 @@
 #include <litearm_msgs/srv/set_motion_mode.hpp>
 #include <litearm_msgs/srv/set_payload.hpp>
 #include <litearm_msgs/srv/set_speed_scaling.hpp>
+#include <litearm_msgs/srv/get_tcp.hpp>
+#include <litearm_msgs/srv/get_diagnostics.hpp>
+#include <litearm_msgs/srv/kin_bench.hpp>
+#include <litearm_msgs/srv/move_j.hpp>
+#include <litearm_msgs/srv/move_j_sync.hpp>
+#include <litearm_msgs/srv/move_p.hpp>
+#include <litearm_msgs/srv/move_js.hpp>
+#include <litearm_msgs/srv/send_mit.hpp>
+#include <litearm_msgs/srv/send_mit_all.hpp>
+#include <litearm_msgs/srv/move_l.hpp>
+#include <litearm_msgs/srv/move_c.hpp>
+#include <litearm_msgs/srv/move_path.hpp>
+#include <litearm_msgs/srv/poll_cart.hpp>
+#include <litearm_msgs/srv/inverse_kinematics.hpp>
+#include <litearm_msgs/srv/get_feedforward_vector.hpp>
+#include <litearm_msgs/srv/get_feedforward_mask.hpp>
+#include <litearm_msgs/srv/get_feedforward_catalog.hpp>
+#include <litearm_msgs/srv/set_gravity_scale.hpp>
+#include <litearm_msgs/srv/set_inertia_scale.hpp>
+#include <litearm_msgs/srv/set_gravity_vector.hpp>
+#include <litearm_msgs/srv/probe_model.hpp>
+#include <litearm_msgs/srv/get_model_body.hpp>
+#include <litearm_msgs/srv/set_model_body.hpp>
+#include <litearm_msgs/srv/get_model_jm.hpp>
+#include <litearm_msgs/srv/set_model_jm.hpp>
+#include <litearm_msgs/srv/commit_model.hpp>
+#include <litearm_msgs/srv/get_model_status.hpp>
+#include <litearm_msgs/srv/log_start.hpp>
+#include <litearm_msgs/srv/log_dump.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <rclcpp_lifecycle/lifecycle_publisher.hpp>
@@ -47,8 +74,13 @@
 #include <std_srvs/srv/set_bool.hpp>
 #include <std_srvs/srv/trigger.hpp>
 
+#include <array>
+#include <cstddef>
+#include <utility>
+
 #include "litearm/arm.hpp"
 #include "litearm_driver/safety_gates.hpp"
+#include "litearm_driver/service_helpers.hpp"
 
 namespace litearm_driver
 {
@@ -78,7 +110,15 @@ namespace litearm_driver
 ///   zero_g_keepalive_period_s    Zero-gravity keep-alive period, [0.005, 0.10). Default
 ///                                0.04.
 ///   allow_dfu                    Allow the enter_dfu service. Default false.
-///   allow_license_activation     Allow the activate_license service. Default false.
+///   allow_motion                 Allow the services that can energise the motors:
+///                                move_j, move_j_sync, move_p, move_js, send_mit,
+///                                send_mit_all, home, move_l, move_c, move_path.
+///                                Default false: this node is a maintenance driver,
+///                                and nothing about diagnosing the arm requires it to
+///                                be able to move it. inverse_kinematics only solves
+///                                and is not gated.
+///   log_dir                      Directory the log_dump service writes into. Empty
+///                                (the default) means $HOME/.ros/litearm.
 ///   frame_id                     Header frame id of the status and joint state messages.
 ///                                Default empty.
 class LitearmDriverNode : public rclcpp_lifecycle::LifecycleNode
@@ -143,12 +183,6 @@ protected:
   void handle_get_status(
     const litearm_msgs::srv::GetStatus::Request::SharedPtr request,
     litearm_msgs::srv::GetStatus::Response::SharedPtr response);
-  void handle_get_license(
-    const litearm_msgs::srv::GetLicense::Request::SharedPtr request,
-    litearm_msgs::srv::GetLicense::Response::SharedPtr response);
-  void handle_activate_license(
-    const litearm_msgs::srv::ActivateLicense::Request::SharedPtr request,
-    litearm_msgs::srv::ActivateLicense::Response::SharedPtr response);
   void handle_set_speed_scaling(
     const litearm_msgs::srv::SetSpeedScaling::Request::SharedPtr request,
     litearm_msgs::srv::SetSpeedScaling::Response::SharedPtr response);
@@ -183,6 +217,109 @@ protected:
     const litearm_msgs::srv::SetJointLimits::Request::SharedPtr request,
     litearm_msgs::srv::SetJointLimits::Response::SharedPtr response);
 
+  // Motion, cartesian, inverse kinematics, model store, diagnostics and the tick log.
+  // The implementations live in litearm_driver_motion.cpp, litearm_driver_model.cpp and
+  // litearm_driver_diagnostics.cpp; the split is by area, not by visibility.
+  void handle_get_tcp(
+    const litearm_msgs::srv::GetTcp::Request::SharedPtr request,
+    litearm_msgs::srv::GetTcp::Response::SharedPtr response);
+  void handle_get_diagnostics(
+    const litearm_msgs::srv::GetDiagnostics::Request::SharedPtr request,
+    litearm_msgs::srv::GetDiagnostics::Response::SharedPtr response);
+  void handle_kin_bench(
+    const litearm_msgs::srv::KinBench::Request::SharedPtr request,
+    litearm_msgs::srv::KinBench::Response::SharedPtr response);
+  void handle_move_j(
+    const litearm_msgs::srv::MoveJ::Request::SharedPtr request,
+    litearm_msgs::srv::MoveJ::Response::SharedPtr response);
+  void handle_move_j_sync(
+    const litearm_msgs::srv::MoveJSync::Request::SharedPtr request,
+    litearm_msgs::srv::MoveJSync::Response::SharedPtr response);
+  void handle_move_p(
+    const litearm_msgs::srv::MoveP::Request::SharedPtr request,
+    litearm_msgs::srv::MoveP::Response::SharedPtr response);
+  void handle_move_js(
+    const litearm_msgs::srv::MoveJs::Request::SharedPtr request,
+    litearm_msgs::srv::MoveJs::Response::SharedPtr response);
+  void handle_send_mit(
+    const litearm_msgs::srv::SendMit::Request::SharedPtr request,
+    litearm_msgs::srv::SendMit::Response::SharedPtr response);
+  void handle_send_mit_all(
+    const litearm_msgs::srv::SendMitAll::Request::SharedPtr request,
+    litearm_msgs::srv::SendMitAll::Response::SharedPtr response);
+  void handle_move_l(
+    const litearm_msgs::srv::MoveL::Request::SharedPtr request,
+    litearm_msgs::srv::MoveL::Response::SharedPtr response);
+  void handle_move_c(
+    const litearm_msgs::srv::MoveC::Request::SharedPtr request,
+    litearm_msgs::srv::MoveC::Response::SharedPtr response);
+  void handle_move_path(
+    const litearm_msgs::srv::MovePath::Request::SharedPtr request,
+    litearm_msgs::srv::MovePath::Response::SharedPtr response);
+  void handle_poll_cart(
+    const litearm_msgs::srv::PollCart::Request::SharedPtr request,
+    litearm_msgs::srv::PollCart::Response::SharedPtr response);
+  void handle_inverse_kinematics(
+    const litearm_msgs::srv::InverseKinematics::Request::SharedPtr request,
+    litearm_msgs::srv::InverseKinematics::Response::SharedPtr response);
+  void handle_get_feedforward_vector(
+    const litearm_msgs::srv::GetFeedforwardVector::Request::SharedPtr request,
+    litearm_msgs::srv::GetFeedforwardVector::Response::SharedPtr response);
+  void handle_get_feedforward_mask(
+    const litearm_msgs::srv::GetFeedforwardMask::Request::SharedPtr request,
+    litearm_msgs::srv::GetFeedforwardMask::Response::SharedPtr response);
+  void handle_get_feedforward_catalog(
+    const litearm_msgs::srv::GetFeedforwardCatalog::Request::SharedPtr request,
+    litearm_msgs::srv::GetFeedforwardCatalog::Response::SharedPtr response);
+  void handle_set_gravity_scale(
+    const litearm_msgs::srv::SetGravityScale::Request::SharedPtr request,
+    litearm_msgs::srv::SetGravityScale::Response::SharedPtr response);
+  void handle_set_inertia_scale(
+    const litearm_msgs::srv::SetInertiaScale::Request::SharedPtr request,
+    litearm_msgs::srv::SetInertiaScale::Response::SharedPtr response);
+  void handle_set_gravity_vector(
+    const litearm_msgs::srv::SetGravityVector::Request::SharedPtr request,
+    litearm_msgs::srv::SetGravityVector::Response::SharedPtr response);
+  void handle_probe_model(
+    const litearm_msgs::srv::ProbeModel::Request::SharedPtr request,
+    litearm_msgs::srv::ProbeModel::Response::SharedPtr response);
+  void handle_get_model_body(
+    const litearm_msgs::srv::GetModelBody::Request::SharedPtr request,
+    litearm_msgs::srv::GetModelBody::Response::SharedPtr response);
+  void handle_set_model_body(
+    const litearm_msgs::srv::SetModelBody::Request::SharedPtr request,
+    litearm_msgs::srv::SetModelBody::Response::SharedPtr response);
+  void handle_get_model_jm(
+    const litearm_msgs::srv::GetModelJm::Request::SharedPtr request,
+    litearm_msgs::srv::GetModelJm::Response::SharedPtr response);
+  void handle_set_model_jm(
+    const litearm_msgs::srv::SetModelJm::Request::SharedPtr request,
+    litearm_msgs::srv::SetModelJm::Response::SharedPtr response);
+  void handle_commit_model(
+    const litearm_msgs::srv::CommitModel::Request::SharedPtr request,
+    litearm_msgs::srv::CommitModel::Response::SharedPtr response);
+  void handle_get_model_status(
+    const litearm_msgs::srv::GetModelStatus::Request::SharedPtr request,
+    litearm_msgs::srv::GetModelStatus::Response::SharedPtr response);
+  void handle_log_start(
+    const litearm_msgs::srv::LogStart::Request::SharedPtr request,
+    litearm_msgs::srv::LogStart::Response::SharedPtr response);
+  void handle_log_dump(
+    const litearm_msgs::srv::LogDump::Request::SharedPtr request,
+    litearm_msgs::srv::LogDump::Response::SharedPtr response);
+  void handle_reconnect(
+    const std_srvs::srv::Trigger::Request::SharedPtr request,
+    std_srvs::srv::Trigger::Response::SharedPtr response);
+  void handle_home(
+    const std_srvs::srv::Trigger::Request::SharedPtr request,
+    std_srvs::srv::Trigger::Response::SharedPtr response);
+  void handle_revert_model(
+    const std_srvs::srv::Trigger::Request::SharedPtr request,
+    std_srvs::srv::Trigger::Response::SharedPtr response);
+  void handle_log_stop(
+    const std_srvs::srv::Trigger::Request::SharedPtr request,
+    std_srvs::srv::Trigger::Response::SharedPtr response);
+
   /// The SDK is reachable and must be used now.
   bool connected() const;
 
@@ -199,6 +336,43 @@ protected:
 
   /// Cached frame, or nullopt when this session has not seen one yet.
   const litearm::RobotState * cached_state();
+
+  /// Number of axes this session was configured with (the firmware's axis count).
+  std::size_t joint_count() const { return joint_names_.size(); }
+
+  /// Every motion service sits behind allow_motion. Returns false and fills the response
+  /// when the switch is off, so a handler is one line: if (!require_motion_allowed(...)).
+  template<class Response>
+  bool require_motion_allowed(Response & response)
+  {
+    // Read at call time, like allow_dfu, so `ros2 param set`
+    // can arm or disarm the motion services without a restart.
+    const GateResult gate = check_parameter_allows(
+      get_parameter("allow_motion").as_bool(), "allow_motion");
+    if (!gate.ok) {
+      fill_failure(response, gate);
+      return false;
+    }
+    return true;
+  }
+
+  /// Register one service whose handler is a plain member function.
+  template<class Srv>
+  void register_service(
+    const std::string & name,
+    void (LitearmDriverNode::*handler)(
+      const typename Srv::Request::SharedPtr,
+      typename Srv::Response::SharedPtr))
+  {
+    services_.push_back(create_service<Srv>(
+      name,
+      [this, handler](
+        const typename Srv::Request::SharedPtr request,
+        typename Srv::Response::SharedPtr response) {
+        (this->*handler)(request, response);
+      },
+      rclcpp::ServicesQoS().get_rmw_qos_profile(), sdk_group_));
+  }
 
 private:
   void read_parameters();
@@ -226,6 +400,7 @@ private:
   bool publish_diagnostics_ = true;
   double diagnostics_rate_hz_ = 1.0;
   std::string frame_id_;
+  std::string log_dir_;
 
   std::unique_ptr<litearm::Arm> arm_;
 

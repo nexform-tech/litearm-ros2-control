@@ -191,7 +191,8 @@ instead.
 `litearm_driver` is the second way to reach the arm. It opens the USB link itself and
 exposes the SDK's administrative calls as services: enable, park, clear faults, enter zero
 gravity, tune the speed governor and the feedforward terms, read and write the joint
-parameter table, read and activate the licence, and enter DFU.
+parameter table, read the licence record (it is reported in the status message), and
+enter DFU.
 
 ```bash
 ros2 launch litearm_driver litearm_driver.launch.py

@@ -23,7 +23,7 @@ launch 文件把节点放在 `litearm` 命名空间下，因此相对服务名�
 
 ## 指令集
 
-节点提供 6 组共 24 个服务、3 个话题与 13 个参数。每个服务都返回 `success` 与 `message`；失败时
+节点提供 10 组共 55 个服务、3 个话题与 14 个参数。每个服务都返回 `success` 与 `message`；失败时
 message 是 SDK 自己的原文，若是被门禁在发帧前拦下，则会说明拒绝的理由。
 
 三条规则决定了整个接口的形状：
@@ -33,8 +33,8 @@ message 是 SDK 自己的原文，若是被门禁在发帧前拦下，则会说�
   保活周期、非有限的前馈数值。
 - **同一时刻只有一条命令。** 所有 SDK 调用都在同一个互斥回调组里执行，因此两条命令绝不可能在链路上
   交错。命令需要等固件 ACK，所以链路卡住时一次服务调用最多会被拖到 SDK 自己的 1.2 s 超时。
-- **读取走缓存。** 只有 `get_status`、`get_license`、`get_feedforward_scalar`、`get_joint_params`
-  会按需与固件通信。`/litearm/status` 从不发帧，因此订阅它不会干扰在途命令。
+- **读取走缓存。** 只有按需读取的服务（`get_status`、`get_tcp`、`get_feedforward_*`、`get_joint_params`、模型读取、`kin_bench`、日志服务与
+`poll_cart`）会与固件通信；`get_feedforward_catalog` 直接答静态表，连链路都不需要。`/litearm/status` 从不发帧，因此订阅它不会干扰在途命令。
 
 ### 参数
 
@@ -51,7 +51,8 @@ message 是 SDK 自己的原文，若是被门禁在发帧前拦下，则会说�
 | `diagnostics_rate_hz` | `1.0` | `/diagnostics` 发布频率。 |
 | `zero_g_keepalive_period_s` | `0.04` | 零重力保活周期，取值 `[0.005, 0.10)`。每次 `zero_g` 调用都会重新读取。 |
 | `allow_dfu` | `false` | `enter_dfu` 的开关，每次调用重新读取。 |
-| `allow_license_activation` | `false` | `activate_license` 的开关，每次调用重新读取。 |
+| `allow_motion` | `false` | 所有运动服务（`move_j`、`move_p`、`move_js`、`send_mit*`、`home`、`move_l`、`move_c`、`move_path`）的开关，每次调用重新读取。 |
+| `log_dir` | `""` | `log_dump` 的落盘目录。留空表示 `$HOME/.ros/litearm`。 |
 | `frame_id` | `""` | 状态与关节状态消息的 header frame id。 |
 
 ### 话题
@@ -78,8 +79,39 @@ message 是 SDK 自己的原文，若是被门禁在发帧前拦下，则会说�
 | `park` | `std_srvs/srv/Trigger` | 声明全刚度静态持位。 |
 | `zero_g` | `std_srvs/srv/SetBool` | 进入或退出零重力（手动引导）。 |
 | `get_status` | `litearm_msgs/srv/GetStatus` | 主动发 `GET_STATUS` 并返回一次快照。 |
-| `get_license` | `litearm_msgs/srv/GetLicense` | 读取设备授权记录。 |
-| `activate_license` | `litearm_msgs/srv/ActivateLicense` | 提交厂商签发的授权凭据。 |
+| `reconnect` | `litearm_msgs/srv/Trigger` | 拔插线缆后重建链路。 |
+| `home` | `litearm_msgs/srv/Trigger` | 以固件低速走回 URDF 零位。 |
+| `get_tcp` | `litearm_msgs/srv/GetTcp` | 读取固件当前的工具位姿。 |
+| `get_diagnostics` | `litearm_msgs/srv/GetDiagnostics` | 主机计数器、各 id 报文速率、链路与能力标志。 |
+| `kin_bench` | `litearm_msgs/srv/KinBench` | 跑固件的运动学基准并解析回执。 |
+| `move_j` | `litearm_msgs/srv/MoveJ` | 关节空间移动，固件逐轴 S 曲线。 |
+| `move_j_sync` | `litearm_msgs/srv/MoveJSync` | 关节空间移动，各轴共用一条同步曲线。 |
+| `move_p` | `litearm_msgs/srv/MoveP` | 位姿移动：固件自己解 IK 并走曲线。 |
+| `move_js` | `litearm_msgs/srv/MoveJs` | 发一帧 MOVE_JS，即流式原语。 |
+| `send_mit` | `litearm_msgs/srv/SendMit` | 单轴 MIT 透传。 |
+| `send_mit_all` | `litearm_msgs/srv/SendMitAll` | 全臂 MIT 透传，一帧。 |
+| `move_l` | `litearm_msgs/srv/MoveL` | 固件规划的直线笛卡尔运动。 |
+| `move_c` | `litearm_msgs/srv/MoveC` | 经过途经点的圆弧笛卡尔运动。 |
+| `move_path` | `litearm_msgs/srv/MovePath` | 多路点笛卡尔路径。 |
+| `poll_cart` | `litearm_msgs/srv/PollCart` | 查询在途笛卡尔请求的结局。 |
+| `inverse_kinematics` | `litearm_msgs/srv/InverseKinematics` | 把位姿解算成关节角，不产生运动。 |
+| `get_feedforward_vector` | `litearm_msgs/srv/GetFeedforwardVector` | 回读一条前馈向量。 |
+| `get_feedforward_mask` | `litearm_msgs/srv/GetFeedforwardMask` | 回读前馈使能掩码。 |
+| `get_feedforward_catalog` | `litearm_msgs/srv/GetFeedforwardCatalog` | 列出 SDK 的条目表，不需要链路。 |
+| `set_gravity_scale` | `litearm_msgs/srv/SetGravityScale` | 按轴缩放重力前馈。 |
+| `set_inertia_scale` | `litearm_msgs/srv/SetInertiaScale` | 按轴缩放惯量前馈。 |
+| `set_gravity_vector` | `litearm_msgs/srv/SetGravityVector` | 写模型使用的重力向量。 |
+| `probe_model` | `litearm_msgs/srv/ProbeModel` | 探测固件是否提供动力学模型存储。 |
+| `get_model_body` | `litearm_msgs/srv/GetModelBody` | 读取动力学模型的单个刚体。 |
+| `set_model_body` | `litearm_msgs/srv/SetModelBody` | 把单个刚体暂存进 RAM。 |
+| `get_model_jm` | `litearm_msgs/srv/GetModelJm` | 读取关节空间模型项。 |
+| `set_model_jm` | `litearm_msgs/srv/SetModelJm` | 把关节空间模型项暂存进 RAM。 |
+| `commit_model` | `litearm_msgs/srv/CommitModel` | 把暂存的模型固化到 flash。 |
+| `revert_model` | `litearm_msgs/srv/Trigger` | 丢弃暂存的模型。 |
+| `get_model_status` | `litearm_msgs/srv/GetModelStatus` | 覆写级别、暂存掩码与 dirty 标志。 |
+| `log_start` | `litearm_msgs/srv/LogStart` | 开始录制固件 300 Hz 控制拍。 |
+| `log_stop` | `litearm_msgs/srv/Trigger` | 停止录制。 |
+| `log_dump` | `litearm_msgs/srv/LogDump` | 把录制读回并落盘成文件。 |
 | `set_speed_scaling` | `litearm_msgs/srv/SetSpeedScaling` | 写全局速度倍率（百分比）。 |
 | `set_motion_mode` | `litearm_msgs/srv/SetMotionMode` | 写固件运动模式。 |
 | `set_payload` | `litearm_msgs/srv/SetPayload` | 声明末端载荷质量与质心。 |
@@ -208,7 +240,7 @@ ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: true}"
 ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: false}"
 ```
 
-### 状态与授权
+### 状态
 
 #### `get_status`
 
@@ -223,46 +255,6 @@ ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: false}"
 
 ```bash
 ros2 service call /litearm/get_status litearm_msgs/srv/GetStatus "{timeout: 0.5}"
-```
-
-#### `get_license`
-
-`Arm::license()`：设备授权记录。未激活的臂也正常应答，因为"未激活"是一种状态而非错误。该调用同时
-刷新节点缓存的记录，也就是 `/litearm/status` 报告的那份。
-
-| 字段 | 类型 | 含义 |
-| --- | --- | --- |
-| `state`（响应） | `uint8` | 0 未激活 / 1 已激活 / 2 已激活且产线模式。 |
-| `state_name`（响应） | `string` | SDK 给该状态的可读名。 |
-| `cust_id`（响应） | `uint32` | 客户号；未激活时为 0。 |
-| `issued`（响应） | `uint32` | 签发日 `YYYYMMDD`；未激活时为 0。 |
-| `flags`（响应） | `uint32` | bit0 为产线码。 |
-| `uid_hex`（响应） | `string` | 24 位小写十六进制，即签发工具必须使用的 UID。 |
-
-```bash
-ros2 service call /litearm/get_license litearm_msgs/srv/GetLicense "{}"
-```
-
-#### `activate_license`
-
-`Arm::activate(cust_id, issued, flags, mac, 16)`，随后回读一次：固件把"已经激活过"与"MAC 不符"
-聚合进同一个错误码，只有状态才是可靠答案。
-
-**不要**在电机使能时激活：本服务会拒绝，SDK 与固件也会。先读 `get_license`，用该记录里的 UID 去签发。
-
-| 字段 | 类型 | 含义 |
-| --- | --- | --- |
-| `cust_id`（请求） | `uint32` | 客户号。 |
-| `issued`（请求） | `uint32` | 签发日 `YYYYMMDD`。 |
-| `flags`（请求） | `uint32` | bit0 为产线码。 |
-| `mac`（请求） | `uint8[16]` | 厂商签发工具产出的两个 SipHash-2-4 标签。 |
-| `state`、`state_name`（响应） | `uint8`、`string` | 尝试后回读的授权状态。 |
-| 前置条件 | | `allow_license_activation:=true` 且电机已失能。 |
-
-```bash
-ros2 param set /litearm/driver allow_license_activation true
-ros2 service call /litearm/activate_license litearm_msgs/srv/ActivateLicense \
-  "{cust_id: 7, issued: 20261006, flags: 0, mac: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}"
 ```
 
 ### 运动配置
@@ -467,6 +459,118 @@ ros2 service call /litearm/reset_factory_params std_srvs/srv/Trigger "{}"
 ros2 service call /litearm/save_params std_srvs/srv/Trigger "{}"
 ```
 
+### 运动（`allow_motion`）
+
+这一组服务的每一个都能给电机上电，因此除非 `allow_motion:=true`（与 `allow_dfu` 一样每次调用重新读取，
+`ros2 param set` 即可生效），它们一律被拒。驱动独占串口，所以这些服务执行期间不会有别的进程在发命令。
+
+| 服务 | 类型 | 作用 |
+| --- | --- | --- |
+| `move_j` | `litearm_msgs/srv/MoveJ` | 关节空间移动，固件逐轴 S 曲线。 |
+| `move_j_sync` | `litearm_msgs/srv/MoveJSync` | 关节空间移动，各轴共用一条同步曲线。 |
+| `move_p` | `litearm_msgs/srv/MoveP` | 位姿移动：固件自己解 IK 并走曲线。 |
+| `move_js` | `litearm_msgs/srv/MoveJs` | 发一帧 MOVE_JS，即流式原语。 |
+| `send_mit` | `litearm_msgs/srv/SendMit` | 单轴 MIT 透传。 |
+| `send_mit_all` | `litearm_msgs/srv/SendMitAll` | 全臂 MIT 透传，一帧。 |
+| `home` | `std_srvs/srv/Trigger` | 以固件低速走回 URDF 零位。 |
+| `move_l` | `litearm_msgs/srv/MoveL` | 固件规划的直线笛卡尔运动。 |
+| `move_c` | `litearm_msgs/srv/MoveC` | 经过途经点的圆弧笛卡尔运动。 |
+| `move_path` | `litearm_msgs/srv/MovePath` | 多路点笛卡尔路径。 |
+
+```bash
+ros2 param set /litearm/driver allow_motion true
+ros2 service call /litearm/move_j litearm_msgs/srv/MoveJ "{q: [0, 0, 0, 0, 0, 0, 0], speed: 0.2}"
+ros2 service call /litearm/move_l litearm_msgs/srv/MoveL \
+  "{pose: [0.3, 0.0, 0.4, 3.14, 0.0, 0.0], speed: 0.2, wait: true}"
+```
+
+⚠ `move_js`、`send_mit`、`send_mit_all` 都是**单帧**：固件的 100 ms 命令看门狗会在没人持续重发时把臂
+交回持位——持续重发是 `litearm_ros2_control` 做的事，这个驱动不做。`speed` 是满速的比例
+（`0 < speed <= 1`）；百分比限速用 `set_speed_scaling`。
+
+### 解算
+
+| 服务 | 类型 | 作用 |
+| --- | --- | --- |
+| `inverse_kinematics` | `litearm_msgs/srv/InverseKinematics` | 把位姿解算成关节角，不产生运动（**不受** `allow_motion` 限制）。 |
+| `poll_cart` | `litearm_msgs/srv/PollCart` | 查询 `wait=false` 的笛卡尔请求：`pending` 为真表示固件还没给出结论。 |
+
+```bash
+ros2 service call /litearm/inverse_kinematics litearm_msgs/srv/InverseKinematics \
+  "{pose: [0.3, 0.0, 0.4, 3.14, 0.0, 0.0], seed: [], timeout: 0.5}"
+```
+
+### 前馈回读与重力变量
+
+固件会静默钳位，所以写入是否生效要靠回读确认。`get_feedforward_catalog` 直接答 SDK 的静态表，
+完全不需要链路。
+
+| 服务 | 类型 | 作用 |
+| --- | --- | --- |
+| `get_feedforward_vector` | `litearm_msgs/srv/GetFeedforwardVector` | 回读一条前馈向量。 |
+| `get_feedforward_mask` | `litearm_msgs/srv/GetFeedforwardMask` | 回读前馈使能掩码。 |
+| `get_feedforward_catalog` | `litearm_msgs/srv/GetFeedforwardCatalog` | 列出 SDK 的条目表，不需要链路。 |
+| `set_gravity_scale` | `litearm_msgs/srv/SetGravityScale` | 按轴缩放重力前馈（item 7，7 个值）。 |
+| `set_inertia_scale` | `litearm_msgs/srv/SetInertiaScale` | 按轴缩放惯量前馈（item 8，7 个值）。 |
+| `set_gravity_vector` | `litearm_msgs/srv/SetGravityVector` | 写模型使用的重力向量（item 6 的三个标量）。 |
+
+```bash
+ros2 service call /litearm/get_feedforward_catalog litearm_msgs/srv/GetFeedforwardCatalog "{}"
+ros2 service call /litearm/get_feedforward_mask litearm_msgs/srv/GetFeedforwardMask "{}"
+```
+
+### 动力学模型存储
+
+固件支持通过链路导入动力学模型（`probe_model` 回答这个固件是否支持）。写入是**暂存在 RAM**：
+`commit_model` 固化到 flash 且要求电机已失能，`revert_model` 丢弃暂存。
+
+| 服务 | 类型 | 作用 |
+| --- | --- | --- |
+| `probe_model` | `litearm_msgs/srv/ProbeModel` | 探测固件是否提供动力学模型存储。 |
+| `get_model_body` / `set_model_body` | `litearm_msgs/srv/GetModelBody` / `SetModelBody` | 读 / 暂存单个刚体。 |
+| `get_model_jm` / `set_model_jm` | `litearm_msgs/srv/GetModelJm` / `SetModelJm` | 读 / 暂存关节空间模型项。 |
+| `commit_model` | `litearm_msgs/srv/CommitModel` | 固化暂存（`expected_mask` 必须与固件暂存一致）。 |
+| `revert_model` | `std_srvs/srv/Trigger` | 丢弃暂存。 |
+| `get_model_status` | `litearm_msgs/srv/GetModelStatus` | 覆写级别、暂存掩码与 dirty 标志。 |
+
+```bash
+ros2 service call /litearm/probe_model litearm_msgs/srv/ProbeModel "{}"
+ros2 service call /litearm/get_model_status litearm_msgs/srv/GetModelStatus "{}"
+```
+
+### 诊断与链路
+
+`get_diagnostics` 用来区分「链路安静」与「两端对帧格式的理解已经不一致」：`dropped` 是没人要的帧，
+`bad_status_frames` 是 CRC 正确但本解码器读不懂的帧。
+
+| 服务 | 类型 | 作用 |
+| --- | --- | --- |
+| `reconnect` | `std_srvs/srv/Trigger` | 拔插线缆后重建会话，并重读授权记录。 |
+| `get_tcp` | `litearm_msgs/srv/GetTcp` | 读取固件当前的工具位姿。 |
+| `get_diagnostics` | `litearm_msgs/srv/GetDiagnostics` | 主机计数器、各 id 报文速率、链路与能力标志。 |
+| `kin_bench` | `litearm_msgs/srv/KinBench` | 跑固件的运动学基准；计数器里的 0 表示「没上报」。 |
+
+```bash
+ros2 service call /litearm/get_diagnostics litearm_msgs/srv/GetDiagnostics "{}"
+ros2 service call /litearm/kin_bench litearm_msgs/srv/KinBench "{timeout: 8.0}"
+```
+
+### 控制拍日志
+
+固件会记录自己的 300 Hz 控制拍（每拍 `tick`、每轴 `q_ref`/`dq`/`tau`）——控制环的问题靠它事后复盘。
+
+| 服务 | 类型 | 作用 |
+| --- | --- | --- |
+| `log_start` | `litearm_msgs/srv/LogStart` | 开始录制指定拍数。 |
+| `log_stop` | `std_srvs/srv/Trigger` | 停止录制。 |
+| `log_dump` | `litearm_msgs/srv/LogDump` | 把录制读回并写进 `log_dir`（`filename` 只能是文件名）。 |
+
+```bash
+ros2 service call /litearm/log_start litearm_msgs/srv/LogStart "{ticks: 600}"
+ros2 service call /litearm/log_dump litearm_msgs/srv/LogDump \
+  "{filename: tick_log.bin, wait: true, timeout: 3.0}"
+```
+
 ### 维护
 
 #### `enter_dfu`
@@ -499,8 +603,8 @@ ros2 service call /litearm/enter_dfu std_srvs/srv/Trigger "{}"
 | `preset must be 0 ... 2` | `set_feedforward_preset` 超出范围 | 只有三档预设。 |
 | `period must be in [0.005, 0.10)` | `zero_g` 遇到越界的保活周期 | 固件命令看门狗在 0.10 s 触发，更慢的保活会静默掉出零重力。 |
 | `mass must be in [0, 20] kg` | `set_payload` 超出范围 | 固件会静默钳制；存进去的值将与请求值不同。 |
-| `requires the motors to be disabled` | 使能状态下调用 `save_params`、`reset_factory_params`、`activate_license` | 写 Flash 与激活只有在没有力矩权限时才是安全的。 |
-| `set the parameter ... to true` | 开关参数为 false 时调用 `enter_dfu`、`activate_license` | 两者都不可逆或涉及信任，默认关闭。 |
+| `requires the motors to be disabled` | 使能状态下调用 `save_params`、`reset_factory_params`、`commit_model` | 写 Flash 只有在没有力矩权限时才是安全的。 |
+| `set the parameter ... to true` | `allow_dfu` 关着时调用 `enter_dfu`；`allow_motion` 关着时调用任何运动服务 | 一个不可逆，一个会给机械臂上电；默认都关。 |
 | `not connected` | 任何在链路不可用时调用的服务 | 点出常见原因：USB 线、24 V 供电，或控制栈占着串口。 |
 | `axis index must be 0..N-1` | 关节服务传入了固件未上报的轴号 | 否则一个笔误就会写到另一个轴上。 |
 
@@ -509,11 +613,10 @@ ros2 service call /litearm/enter_dfu std_srvs/srv/Trigger "{}"
 
 ### 未暴露的能力
 
-轨迹执行、笛卡尔伺服与遥操作、固件笛卡尔规划、模型导入、日志采集、`kin_bench` 在这里都没有对应
-服务。运动控制属于 ros2_control 栈（`joint_trajectory_controller`、MoveIt 2）；伺服需要命令通路上
-有控制器，而不是一个每次只交接一个位姿的服务。原因写在
-[`docs/command-set.zh-CN.md`](../docs/command-set.zh-CN.md) 里，那份文档还包含持有权规则、错误语义
-与兼容性表。
+笛卡尔伺服与遥操作在这里没有对应服务：伺服需要命令通路上有控制器，而不是一个每次只交接一个
+位姿的服务，那部分在 MoveIt Servo 与 `litearm_servo_control`。轨迹执行、固件笛卡尔规划、模型存储
+与控制拍日志都已经暴露（能驱动机械臂的都在 `allow_motion` 之后）。持有权规则、错误语义与兼容性表
+写在 [`docs/command-set.zh-CN.md`](../docs/command-set.zh-CN.md) 里。
 
 ## 测试
 

@@ -1,6 +1,7 @@
 // litearm_driver_node.cpp — implementation of the LiteArm maintenance driver.
 
 #include "litearm_driver/litearm_driver_node.hpp"
+#include "litearm_driver/service_helpers.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -21,57 +22,6 @@
 namespace litearm_driver
 {
 
-namespace
-{
-
-/// Copy a rejected gate into a service response.
-template <class Response>
-void fill_failure(Response & response, const GateResult & gate)
-{
-  response.success = false;
-  response.message = gate.message;
-}
-
-/// Run one SDK call and fill the response from its outcome.
-///
-/// The SDK reports every refusal as an exception whose message names the reason: a
-/// clamped register, a required reset, a mode the firmware does not implement. The driver
-/// passes that text through unchanged, because a caller who sees the firmware's own words
-/// can act on them and a generic "failed" cannot be acted on.
-template <class Response, class Fn>
-void run_command(litearm::Arm * arm, const char * what, Response & response, Fn && fn)
-{
-  const GateResult link = check_connected(arm != nullptr && arm->is_connected());
-  if (!link.ok) {
-    fill_failure(response, link);
-    return;
-  }
-  try {
-    fn(*arm);
-    response.success = true;
-    if (response.message.empty()) {
-      response.message = std::string(what) + ": ok";
-    }
-  } catch (const litearm::LiteArmError & error) {
-    response.success = false;
-    response.message = std::string(what) + " failed: " + error.what();
-  } catch (const std::exception & error) {
-    response.success = false;
-    response.message = std::string(what) + " failed: " + error.what();
-  }
-}
-
-/// Age of the last status frame in seconds, or -1 when none arrived yet.
-double frame_age(double stamp_s)
-{
-  if (stamp_s <= 0.0) {
-    return -1.0;
-  }
-  return litearm::steady_clock_instance().now_s() - stamp_s;
-}
-
-}  // namespace
-
 LitearmDriverNode::LitearmDriverNode(const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode("litearm_driver", options)
 {
@@ -88,7 +38,8 @@ LitearmDriverNode::LitearmDriverNode(const rclcpp::NodeOptions & options)
   declare_parameter<double>("diagnostics_rate_hz", 1.0);
   declare_parameter<double>("zero_g_keepalive_period_s", litearm::ZG_KEEPALIVE_S);
   declare_parameter<bool>("allow_dfu", false);
-  declare_parameter<bool>("allow_license_activation", false);
+  declare_parameter<bool>("allow_motion", false);
+  declare_parameter<std::string>("log_dir", "");
   declare_parameter<std::string>("frame_id", "");
 
   sdk_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -120,6 +71,11 @@ void LitearmDriverNode::read_parameters()
   publish_diagnostics_ = get_parameter("publish_diagnostics").as_bool();
   diagnostics_rate_hz_ = get_parameter("diagnostics_rate_hz").as_double();
   frame_id_ = get_parameter("frame_id").as_string();
+  log_dir_ = get_parameter("log_dir").as_string();
+  if (log_dir_.empty()) {
+    const char * home = std::getenv("HOME");
+    log_dir_ = std::string(home != nullptr ? home : ".") + "/.ros/litearm";
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
@@ -181,7 +137,7 @@ LitearmDriverNode::CallbackReturn LitearmDriverNode::on_configure(
   } catch (const std::exception & error) {
     RCLCPP_WARN(
       get_logger(), "Could not read the licence record yet (%s). It is not fatal: the "
-      "get_license service can read it later.", error.what());
+      "status message's licence fields stay empty until the next attempt.", error.what());
   }
 
   // Publishers are created here and activated in on_activate, which is the lifecycle
@@ -220,7 +176,7 @@ LitearmDriverNode::CallbackReturn LitearmDriverNode::on_activate(
       // off is the silent failure this node exists to prevent.
       RCLCPP_FATAL(
         get_logger(), "ENABLE was refused: %s\n"
-        "The node stays inactive. Check the licence with the get_license service, or "
+        "The node stays inactive. Check the licence fields of the status message, or "
         "clear the fault and try again.", error.what());
       return CallbackReturn::ERROR;
     }
@@ -332,6 +288,10 @@ void LitearmDriverNode::create_service_servers()
         qos, sdk_group_));
     };
 
+  trigger("reconnect", &LitearmDriverNode::handle_reconnect);
+  trigger("home", &LitearmDriverNode::handle_home);
+  trigger("revert_model", &LitearmDriverNode::handle_revert_model);
+  trigger("log_stop", &LitearmDriverNode::handle_log_stop);
   trigger("enable", &LitearmDriverNode::handle_enable);
   trigger("disable", &LitearmDriverNode::handle_disable);
   trigger("reset", &LitearmDriverNode::handle_reset);
@@ -349,30 +309,41 @@ void LitearmDriverNode::create_service_servers()
       SetBool::Response::SharedPtr response) { handle_zero_g(request, response); },
     qos, sdk_group_));
 
+  register_service<litearm_msgs::srv::GetTcp>("get_tcp", &LitearmDriverNode::handle_get_tcp);
+  register_service<litearm_msgs::srv::GetDiagnostics>("get_diagnostics", &LitearmDriverNode::handle_get_diagnostics);
+  register_service<litearm_msgs::srv::KinBench>("kin_bench", &LitearmDriverNode::handle_kin_bench);
+  register_service<litearm_msgs::srv::MoveJ>("move_j", &LitearmDriverNode::handle_move_j);
+  register_service<litearm_msgs::srv::MoveJSync>("move_j_sync", &LitearmDriverNode::handle_move_j_sync);
+  register_service<litearm_msgs::srv::MoveP>("move_p", &LitearmDriverNode::handle_move_p);
+  register_service<litearm_msgs::srv::MoveJs>("move_js", &LitearmDriverNode::handle_move_js);
+  register_service<litearm_msgs::srv::SendMit>("send_mit", &LitearmDriverNode::handle_send_mit);
+  register_service<litearm_msgs::srv::SendMitAll>("send_mit_all", &LitearmDriverNode::handle_send_mit_all);
+  register_service<litearm_msgs::srv::MoveL>("move_l", &LitearmDriverNode::handle_move_l);
+  register_service<litearm_msgs::srv::MoveC>("move_c", &LitearmDriverNode::handle_move_c);
+  register_service<litearm_msgs::srv::MovePath>("move_path", &LitearmDriverNode::handle_move_path);
+  register_service<litearm_msgs::srv::PollCart>("poll_cart", &LitearmDriverNode::handle_poll_cart);
+  register_service<litearm_msgs::srv::InverseKinematics>("inverse_kinematics", &LitearmDriverNode::handle_inverse_kinematics);
+  register_service<litearm_msgs::srv::GetFeedforwardVector>("get_feedforward_vector", &LitearmDriverNode::handle_get_feedforward_vector);
+  register_service<litearm_msgs::srv::GetFeedforwardMask>("get_feedforward_mask", &LitearmDriverNode::handle_get_feedforward_mask);
+  register_service<litearm_msgs::srv::GetFeedforwardCatalog>("get_feedforward_catalog", &LitearmDriverNode::handle_get_feedforward_catalog);
+  register_service<litearm_msgs::srv::SetGravityScale>("set_gravity_scale", &LitearmDriverNode::handle_set_gravity_scale);
+  register_service<litearm_msgs::srv::SetInertiaScale>("set_inertia_scale", &LitearmDriverNode::handle_set_inertia_scale);
+  register_service<litearm_msgs::srv::SetGravityVector>("set_gravity_vector", &LitearmDriverNode::handle_set_gravity_vector);
+  register_service<litearm_msgs::srv::ProbeModel>("probe_model", &LitearmDriverNode::handle_probe_model);
+  register_service<litearm_msgs::srv::GetModelBody>("get_model_body", &LitearmDriverNode::handle_get_model_body);
+  register_service<litearm_msgs::srv::SetModelBody>("set_model_body", &LitearmDriverNode::handle_set_model_body);
+  register_service<litearm_msgs::srv::GetModelJm>("get_model_jm", &LitearmDriverNode::handle_get_model_jm);
+  register_service<litearm_msgs::srv::SetModelJm>("set_model_jm", &LitearmDriverNode::handle_set_model_jm);
+  register_service<litearm_msgs::srv::CommitModel>("commit_model", &LitearmDriverNode::handle_commit_model);
+  register_service<litearm_msgs::srv::GetModelStatus>("get_model_status", &LitearmDriverNode::handle_get_model_status);
+  register_service<litearm_msgs::srv::LogStart>("log_start", &LitearmDriverNode::handle_log_start);
+  register_service<litearm_msgs::srv::LogDump>("log_dump", &LitearmDriverNode::handle_log_dump);
   services_.push_back(create_service<litearm_msgs::srv::GetStatus>(
     "get_status",
     [this](
       const litearm_msgs::srv::GetStatus::Request::SharedPtr request,
       litearm_msgs::srv::GetStatus::Response::SharedPtr response) {
       handle_get_status(request, response);
-    },
-    qos, sdk_group_));
-
-  services_.push_back(create_service<litearm_msgs::srv::GetLicense>(
-    "get_license",
-    [this](
-      const litearm_msgs::srv::GetLicense::Request::SharedPtr request,
-      litearm_msgs::srv::GetLicense::Response::SharedPtr response) {
-      handle_get_license(request, response);
-    },
-    qos, sdk_group_));
-
-  services_.push_back(create_service<litearm_msgs::srv::ActivateLicense>(
-    "activate_license",
-    [this](
-      const litearm_msgs::srv::ActivateLicense::Request::SharedPtr request,
-      litearm_msgs::srv::ActivateLicense::Response::SharedPtr response) {
-      handle_activate_license(request, response);
     },
     qos, sdk_group_));
 
@@ -899,7 +870,7 @@ void LitearmDriverNode::handle_zero_g(
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
-// service handlers: status and licence
+// service handlers: status
 // ────────────────────────────────────────────────────────────────────────────────
 
 void LitearmDriverNode::handle_get_status(
@@ -913,51 +884,6 @@ void LitearmDriverNode::handle_get_status(
     have_state_ = true;
     response->status = build_status(&last_state_);
     response->message = "status taken from the firmware";
-  });
-}
-
-void LitearmDriverNode::handle_get_license(
-  const litearm_msgs::srv::GetLicense::Request::SharedPtr /*request*/,
-  litearm_msgs::srv::GetLicense::Response::SharedPtr response)
-{
-  run_command(arm_.get(), "get_license", *response, [this, &response](litearm::Arm & arm) {
-    license_ = arm.license();
-    license_valid_ = true;
-    response->state = static_cast<uint8_t>(license_.state);
-    response->state_name = license_.state_name();
-    response->cust_id = license_.cust_id;
-    response->issued = license_.issued;
-    response->flags = license_.flags;
-    response->uid_hex = license_.uid_hex();
-    response->message = std::string("licence record read: ") + license_.state_name();
-  });
-}
-
-void LitearmDriverNode::handle_activate_license(
-  const litearm_msgs::srv::ActivateLicense::Request::SharedPtr request,
-  litearm_msgs::srv::ActivateLicense::Response::SharedPtr response)
-{
-  const GateResult allowed =
-    check_parameter_allows(get_parameter("allow_license_activation").as_bool(),
-      "allow_license_activation");
-  if (!allowed.ok) {
-    fill_failure(*response, allowed);
-    return;
-  }
-  const GateResult disabled = check_requires_disabled(motors_enabled(), "activate_license");
-  if (!disabled.ok) {
-    fill_failure(*response, disabled);
-    return;
-  }
-  run_command(arm_.get(), "activate_license", *response, [this, &request, &response](
-      litearm::Arm & arm) {
-    arm.activate(request->cust_id, request->issued, request->flags, request->mac.data(),
-      request->mac.size());
-    // Read the record back: the firmware's "already activated" path aggregates into one
-    // error code, so the state is the only reliable answer.
-    refresh_license_record();
-    response->state = static_cast<uint8_t>(license_.state);
-    response->state_name = license_.state_name();
   });
 }
 

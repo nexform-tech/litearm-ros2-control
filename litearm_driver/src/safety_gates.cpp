@@ -117,6 +117,90 @@ GateResult check_parameter_allows(bool allowed, const std::string & parameter_na
   return GateResult{};
 }
 
+GateResult check_speed_fraction(double speed)
+{
+  if (!std::isfinite(speed)) {
+    return {false, "speed must be finite"};
+  }
+  if (speed <= 0.0 || speed > 1.0) {
+    return {false, "speed is a fraction of full speed: 0 < speed <= 1 (30 means 30x, "
+                   "not 30 percent; set_speed_scaling takes percent)"};
+  }
+  return {};
+}
+
+namespace
+{
+
+GateResult check_finite_values_impl(
+  const std::vector<double> & values, std::size_t expected, const char * what)
+{
+  if (values.empty()) {
+    return {false, std::string(what) + " must not be empty"};
+  }
+  if (expected > 0 && values.size() != expected) {
+    return {false, std::string(what) + " has " + std::to_string(values.size()) +
+      " values; the firmware reports " + std::to_string(expected) + " axes"};
+  }
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (!std::isfinite(values[i])) {
+      return {false, std::string(what) + "[" + std::to_string(i) + "] is not finite"};
+    }
+  }
+  return {};
+}
+
+}  // namespace
+
+GateResult check_finite_values(const std::vector<double> & values, const char * what)
+{
+  return check_finite_values_impl(values, 0, what);
+}
+
+GateResult check_finite_values(
+  const std::vector<double> & values, std::size_t expected, const char * what)
+{
+  return check_finite_values_impl(values, expected, what);
+}
+
+GateResult check_finite_pose(const std::array<double, 6> & pose)
+{
+  return check_finite_values_impl(
+    std::vector<double>(pose.begin(), pose.end()), 6u, "pose");
+}
+
+GateResult check_finite_vector3(const std::array<double, 3> & values)
+{
+  return check_finite_values_impl(
+    std::vector<double>(values.begin(), values.end()), 3u, "vector");
+}
+
+GateResult check_log_filename(const std::string & filename)
+{
+  if (filename.empty()) {
+    return {false, "filename must not be empty"};
+  }
+  if (filename.find('/') != std::string::npos || filename.find('\\') != std::string::npos ||
+    filename == "." || filename == "..")
+  {
+    return {false, "filename is a plain file name: it is written inside the node's "
+                   "log_dir, so a path is not accepted"};
+  }
+  return {};
+}
+
+GateResult check_timeout(double timeout, const char * what)
+{
+  if (!std::isfinite(timeout)) {
+    return {false, std::string(what) + " must be finite"};
+  }
+  if (timeout < 0.0) {
+    return {false, std::string(what) + " must not be negative; 0 means \"use the "
+                   "SDK default\" where the service documents it"};
+  }
+  return {};
+}
+
 GateResult check_connected(bool connected)
 {
   if (!connected) {

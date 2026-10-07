@@ -27,7 +27,7 @@ written relative to that namespace.
 
 ## Command set
 
-The node exposes 24 services in six groups, three topics and 13 parameters. Every service
+The node exposes 55 services in ten groups, three topics and 14 parameters. Every service
 returns `success` plus a `message`; on failure the message carries the SDK's own words, and
 when a gate refused the call before the frame was built, the reason for the refusal.
 
@@ -40,9 +40,11 @@ Three rules shape the whole surface:
 - **One command at a time.** Every SDK call runs in one mutually exclusive callback group,
   so two commands can never interleave on the wire. A command waits for the firmware ACK,
   so a stalled link can hold a service call for up to the SDK's own 1.2 s timeout.
-- **Reads are cached.** Only `get_status`, `get_license`, `get_feedforward_scalar` and
-  `get_joint_params` talk to the firmware on demand. `/litearm/status` never does, so
-  subscribing cannot disturb a command in flight.
+- **Reads are cached.** Only the on-demand services (`get_status`, `get_tcp`, the
+  `get_feedforward_*` reads, `get_joint_params`, the model reads, `kin_bench`, the log
+  services and `poll_cart`) talk to the firmware on demand; `get_feedforward_catalog`
+  answers from the SDK's static tables and needs no link at all. `/litearm/status` never
+  does, so subscribing cannot disturb a command in flight.
 
 ### Parameters
 
@@ -59,7 +61,8 @@ Three rules shape the whole surface:
 | `diagnostics_rate_hz` | `1.0` | `/diagnostics` publication rate. |
 | `zero_g_keepalive_period_s` | `0.04` | Zero-gravity keep-alive period, `[0.005, 0.10)`. Read on every `zero_g` call. |
 | `allow_dfu` | `false` | Gate for `enter_dfu`. Read on every call. |
-| `allow_license_activation` | `false` | Gate for `activate_license`. Read on every call. |
+| `allow_motion` | `false` | Gate for every motion service (`move_j`, `move_p`, `move_js`, `send_mit*`, `home`, `move_l`, `move_c`, `move_path`). Read on every call. |
+| `log_dir` | `""` | Directory `log_dump` writes into. Empty means `$HOME/.ros/litearm`. |
 | `frame_id` | `""` | Header frame id of the status and joint state messages. |
 
 ### Topics
@@ -88,8 +91,39 @@ read-back values.
 | `park` | `std_srvs/srv/Trigger` | Declare a static hold at full stiffness. |
 | `zero_g` | `std_srvs/srv/SetBool` | Enter or leave zero gravity (hand-guided motion). |
 | `get_status` | `litearm_msgs/srv/GetStatus` | Send `GET_STATUS` and return one snapshot. |
-| `get_license` | `litearm_msgs/srv/GetLicense` | Read the device licence record. |
-| `activate_license` | `litearm_msgs/srv/ActivateLicense` | Submit a vendor-signed credential. |
+| `reconnect` | `litearm_msgs/srv/Trigger` | Re-open the link after an unplugged cable. |
+| `home` | `litearm_msgs/srv/Trigger` | Walk to the URDF zero pose at the firmware's low speed. |
+| `get_tcp` | `litearm_msgs/srv/GetTcp` | Read the firmware's current tool pose. |
+| `get_diagnostics` | `litearm_msgs/srv/GetDiagnostics` | Host counters, per-id message rates, link and capability flags. |
+| `kin_bench` | `litearm_msgs/srv/KinBench` | Run the firmware's kinematics benchmark and parse the reply. |
+| `move_j` | `litearm_msgs/srv/MoveJ` | Joint move on the firmware's per-axis S-curve. |
+| `move_j_sync` | `litearm_msgs/srv/MoveJSync` | Joint move with every axis on one synchronised curve. |
+| `move_p` | `litearm_msgs/srv/MoveP` | Pose move: the firmware solves the IK and walks its own curve. |
+| `move_js` | `litearm_msgs/srv/MoveJs` | Send one MOVE_JS frame, the streaming primitive. |
+| `send_mit` | `litearm_msgs/srv/SendMit` | One axis of raw MIT passthrough. |
+| `send_mit_all` | `litearm_msgs/srv/SendMitAll` | Whole-arm MIT passthrough, one frame. |
+| `move_l` | `litearm_msgs/srv/MoveL` | Straight-line cartesian move, planned by the firmware. |
+| `move_c` | `litearm_msgs/srv/MoveC` | Circular cartesian move through a via pose. |
+| `move_path` | `litearm_msgs/srv/MovePath` | Multi-waypoint cartesian path. |
+| `poll_cart` | `litearm_msgs/srv/PollCart` | Outcome of an in-flight cartesian request. |
+| `inverse_kinematics` | `litearm_msgs/srv/InverseKinematics` | Solve a pose into joint angles; does not move. |
+| `get_feedforward_vector` | `litearm_msgs/srv/GetFeedforwardVector` | Read one feedforward vector back. |
+| `get_feedforward_mask` | `litearm_msgs/srv/GetFeedforwardMask` | Read the feedforward enable mask back. |
+| `get_feedforward_catalog` | `litearm_msgs/srv/GetFeedforwardCatalog` | The SDK's item tables, answered without a session. |
+| `set_gravity_scale` | `litearm_msgs/srv/SetGravityScale` | Scale the gravity feedforward per axis. |
+| `set_inertia_scale` | `litearm_msgs/srv/SetInertiaScale` | Scale the inertia feedforward per axis. |
+| `set_gravity_vector` | `litearm_msgs/srv/SetGravityVector` | Write the gravity vector the model uses. |
+| `probe_model` | `litearm_msgs/srv/ProbeModel` | Ask whether the firmware has a dynamics model store. |
+| `get_model_body` | `litearm_msgs/srv/GetModelBody` | Read one body of the dynamics model. |
+| `set_model_body` | `litearm_msgs/srv/SetModelBody` | Stage one body of the dynamics model in RAM. |
+| `get_model_jm` | `litearm_msgs/srv/GetModelJm` | Read the joint-space model terms. |
+| `set_model_jm` | `litearm_msgs/srv/SetModelJm` | Stage the joint-space model terms in RAM. |
+| `commit_model` | `litearm_msgs/srv/CommitModel` | Write the staged model to flash. |
+| `revert_model` | `litearm_msgs/srv/Trigger` | Drop the staged model. |
+| `get_model_status` | `litearm_msgs/srv/GetModelStatus` | Override level, staged mask and the dirty flag. |
+| `log_start` | `litearm_msgs/srv/LogStart` | Start recording the firmware's 300 Hz control ticks. |
+| `log_stop` | `litearm_msgs/srv/Trigger` | Stop recording. |
+| `log_dump` | `litearm_msgs/srv/LogDump` | Read the recording back and write it to a file. |
 | `set_speed_scaling` | `litearm_msgs/srv/SetSpeedScaling` | Write the global speed governor, in percent. |
 | `set_motion_mode` | `litearm_msgs/srv/SetMotionMode` | Write the firmware motion mode. |
 | `set_payload` | `litearm_msgs/srv/SetPayload` | Declare the end-effector mass and centre of mass. |
@@ -224,7 +258,7 @@ ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: true}"
 ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: false}"
 ```
 
-### Status and licence
+### Status
 
 #### `get_status`
 
@@ -239,49 +273,6 @@ when the passive stream is silent and you need proof of life with a deadline.
 
 ```bash
 ros2 service call /litearm/get_status litearm_msgs/srv/GetStatus "{timeout: 0.5}"
-```
-
-#### `get_license`
-
-`Arm::license()`: the device licence record. An unactivated arm answers normally, because
-"not activated" is a state and not an error. The record also refreshes the node's cached
-copy, which is what `/litearm/status` reports.
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `state` (response) | `uint8` | 0 unactivated, 1 activated, 2 activated in factory mode. |
-| `state_name` (response) | `string` | The name the SDK gives that state. |
-| `cust_id` (response) | `uint32` | Customer number; 0 while unactivated. |
-| `issued` (response) | `uint32` | Issue date as `YYYYMMDD`; 0 while unactivated. |
-| `flags` (response) | `uint32` | bit 0 is the factory code. |
-| `uid_hex` (response) | `string` | 24 lowercase hex characters: the UID the signing tool must use. |
-
-```bash
-ros2 service call /litearm/get_license litearm_msgs/srv/GetLicense "{}"
-```
-
-#### `activate_license`
-
-`Arm::activate(cust_id, issued, flags, mac, 16)` followed by a read-back, because the
-firmware aggregates "already activated" and "MAC mismatch" into one error code; the state
-is the only reliable answer.
-
-**Do not** activate while the motors are enabled: the service refuses, and so do the SDK
-and the firmware. Read `get_license` first and sign the UID from that record.
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `cust_id` (request) | `uint32` | Customer number. |
-| `issued` (request) | `uint32` | Issue date as `YYYYMMDD`. |
-| `flags` (request) | `uint32` | bit 0 is the factory code. |
-| `mac` (request) | `uint8[16]` | Two SipHash-2-4 tags from the vendor's signing tool. |
-| `state`, `state_name` (response) | `uint8`, `string` | The licence state read back after the attempt. |
-| Preconditions | | `allow_license_activation:=true` and disabled motors. |
-
-```bash
-ros2 param set /litearm/driver allow_license_activation true
-ros2 service call /litearm/activate_license litearm_msgs/srv/ActivateLicense \
-  "{cust_id: 7, issued: 20261006, flags: 0, mac: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}"
 ```
 
 ### Motion configuration
@@ -494,6 +485,131 @@ A flash write is not reversible.
 ros2 service call /litearm/save_params std_srvs/srv/Trigger "{}"
 ```
 
+### Motion (`allow_motion`)
+
+Every service here can energise the motors, so all of them are refused unless `allow_motion:=true` is set (`ros2 param
+set` works without a restart; the parameter is read on every call, like `allow_dfu`). The driver owns the serial port
+exclusively, so nothing else is streaming commands while one of these runs.
+
+⚠ `move_js`, `send_mit` and `send_mit_all` are **single frames**. The firmware's 100 ms command watchdog takes the arm
+back to its hold unless a caller keeps re-sending, which is what `litearm_ros2_control` does and what this driver does
+not. `speed` is a fraction of full speed (`0 < speed <= 1`); `set_speed_scaling` is the percentage governor.
+
+| Service | Type | What it does |
+| --- | --- | --- |
+| `home` | `litearm_msgs/srv/Trigger` | Walk to the URDF zero pose at the firmware's low speed. |
+| `move_j` | `litearm_msgs/srv/MoveJ` | Joint move on the firmware's per-axis S-curve. |
+| `move_j_sync` | `litearm_msgs/srv/MoveJSync` | Joint move with every axis on one synchronised curve. |
+| `move_p` | `litearm_msgs/srv/MoveP` | Pose move: the firmware solves the IK and walks its own curve. |
+| `move_js` | `litearm_msgs/srv/MoveJs` | Send one MOVE_JS frame, the streaming primitive. |
+| `send_mit` | `litearm_msgs/srv/SendMit` | One axis of raw MIT passthrough. |
+| `send_mit_all` | `litearm_msgs/srv/SendMitAll` | Whole-arm MIT passthrough, one frame. |
+| `move_l` | `litearm_msgs/srv/MoveL` | Straight-line cartesian move, planned by the firmware. |
+| `move_c` | `litearm_msgs/srv/MoveC` | Circular cartesian move through a via pose. |
+| `move_path` | `litearm_msgs/srv/MovePath` | Multi-waypoint cartesian path. |
+
+```bash
+ros2 param set /litearm/driver allow_motion true
+ros2 service call /litearm/move_j litearm_msgs/srv/MoveJ "{q: [0, 0, 0, 0, 0, 0, 0], speed: 0.2}"
+ros2 service call /litearm/move_l litearm_msgs/srv/MoveL "{pose: [0.3, 0.0, 0.4, 3.14, 0.0, 0.0], speed: 0.2, wait: true}"
+```
+
+### Computing
+
+`inverse_kinematics` only computes, so it is **not** behind `allow_motion`. `poll_cart` reports the outcome of a
+`wait=false` cartesian request: `pending` stays true until the firmware answers, and `err` is the firmware's own
+cartesian error code.
+
+| Service | Type | What it does |
+| --- | --- | --- |
+| `poll_cart` | `litearm_msgs/srv/PollCart` | Outcome of an in-flight cartesian request. |
+| `inverse_kinematics` | `litearm_msgs/srv/InverseKinematics` | Solve a pose into joint angles; does not move. |
+
+```bash
+ros2 service call /litearm/inverse_kinematics litearm_msgs/srv/InverseKinematics "{pose: [0.3, 0.0, 0.4, 3.14, 0.0,
+0.0], seed: [], timeout: 0.5}"
+```
+
+### Feedforward reads and gravity variables
+
+The firmware clamps silently, so the reads are how a write is confirmed. `get_feedforward_catalog` answers from the
+SDK's static tables and works with no session at all; its three lists are `item: name`, and `scalar_read_only_items` are
+the ones `set_feedforward_scalar` cannot write. `set_gravity_scale` and `set_inertia_scale` are the SDK's convenience
+wrappers over feedforward vector items 7 and 8 (seven values each); `set_gravity_vector` writes the three scalar
+components of item 6.
+
+| Service | Type | What it does |
+| --- | --- | --- |
+| `get_feedforward_vector` | `litearm_msgs/srv/GetFeedforwardVector` | Read one feedforward vector back. |
+| `get_feedforward_mask` | `litearm_msgs/srv/GetFeedforwardMask` | Read the feedforward enable mask back. |
+| `get_feedforward_catalog` | `litearm_msgs/srv/GetFeedforwardCatalog` | The SDK's item tables, answered without a session. |
+| `set_gravity_scale` | `litearm_msgs/srv/SetGravityScale` | Scale the gravity feedforward per axis. |
+| `set_inertia_scale` | `litearm_msgs/srv/SetInertiaScale` | Scale the inertia feedforward per axis. |
+| `set_gravity_vector` | `litearm_msgs/srv/SetGravityVector` | Write the gravity vector the model uses. |
+
+```bash
+ros2 service call /litearm/get_feedforward_catalog litearm_msgs/srv/GetFeedforwardCatalog "{}"
+ros2 service call /litearm/get_feedforward_mask litearm_msgs/srv/GetFeedforwardMask "{}"
+```
+
+### Dynamics model store
+
+The firmware can import its dynamics model over the wire (`probe_model` says whether this build answers those commands).
+Writes are **staged in RAM**: `commit_model` stores them and needs the motors disabled, `revert_model` drops them.
+`expected_mask` must match what the firmware has staged or the commit is refused — read it from `get_model_status`.
+
+| Service | Type | What it does |
+| --- | --- | --- |
+| `probe_model` | `litearm_msgs/srv/ProbeModel` | Ask whether the firmware has a dynamics model store. |
+| `get_model_body` | `litearm_msgs/srv/GetModelBody` | Read one body of the dynamics model. |
+| `set_model_body` | `litearm_msgs/srv/SetModelBody` | Stage one body of the dynamics model in RAM. |
+| `get_model_jm` | `litearm_msgs/srv/GetModelJm` | Read the joint-space model terms. |
+| `set_model_jm` | `litearm_msgs/srv/SetModelJm` | Stage the joint-space model terms in RAM. |
+| `commit_model` | `litearm_msgs/srv/CommitModel` | Write the staged model to flash. |
+| `revert_model` | `litearm_msgs/srv/Trigger` | Drop the staged model. |
+| `get_model_status` | `litearm_msgs/srv/GetModelStatus` | Override level, staged mask and the dirty flag. |
+
+```bash
+ros2 service call /litearm/probe_model litearm_msgs/srv/ProbeModel "{}"
+ros2 service call /litearm/get_model_status litearm_msgs/srv/GetModelStatus "{}"
+```
+
+### Diagnostics and the link
+
+`get_diagnostics` is what separates "the link is quiet" from "the two ends disagree about the frame format": `dropped`
+counts frames nobody wanted, `bad_status_frames` counts CRC-valid frames this decoder could not read. `kin_bench`
+returns the firmware's own text plus the counters it names; 0 there means "not reported", not "no errors". `reconnect`
+rebuilds the session after an unplugged cable, and re-reads the licence record because a different device could answer.
+
+| Service | Type | What it does |
+| --- | --- | --- |
+| `reconnect` | `litearm_msgs/srv/Trigger` | Re-open the link after an unplugged cable. |
+| `get_tcp` | `litearm_msgs/srv/GetTcp` | Read the firmware's current tool pose. |
+| `get_diagnostics` | `litearm_msgs/srv/GetDiagnostics` | Host counters, per-id message rates, link and capability flags. |
+| `kin_bench` | `litearm_msgs/srv/KinBench` | Run the firmware's kinematics benchmark and parse the reply. |
+
+```bash
+ros2 service call /litearm/get_diagnostics litearm_msgs/srv/GetDiagnostics "{}"
+ros2 service call /litearm/kin_bench litearm_msgs/srv/KinBench "{timeout: 8.0}"
+```
+
+### Control tick log
+
+The firmware records its own 300 Hz control ticks (`tick`, `q_ref`, `dq`, `tau` per axis) — the log is how a
+control-loop problem is looked at after the fact. `log_dump` writes the raw blob into the node's `log_dir`; the
+`filename` is a plain name, never a path, because where files land is not the caller's choice.
+
+| Service | Type | What it does |
+| --- | --- | --- |
+| `log_start` | `litearm_msgs/srv/LogStart` | Start recording the firmware's 300 Hz control ticks. |
+| `log_stop` | `litearm_msgs/srv/Trigger` | Stop recording. |
+| `log_dump` | `litearm_msgs/srv/LogDump` | Read the recording back and write it to a file. |
+
+```bash
+ros2 service call /litearm/log_start litearm_msgs/srv/LogStart "{ticks: 600}"
+ros2 service call /litearm/log_dump litearm_msgs/srv/LogDump "{filename: tick_log.bin, wait: true, timeout: 3.0}"
+```
+
 ### Maintenance
 
 #### `enter_dfu`
@@ -527,8 +643,8 @@ The test `RefusedArgumentsSendNoFrame` covers that.
 | `preset must be 0 ... 2` | `set_feedforward_preset` outside the range | Only three presets exist. |
 | `period must be in [0.005, 0.10)` | `zero_g` with a bad keep-alive period | The firmware command watchdog trips at 0.10 s, so a slower keep-alive would silently drop out of zero gravity. |
 | `mass must be in [0, 20] kg` | `set_payload` outside the range | The firmware clamps silently; the stored value would differ from the requested one. |
-| `requires the motors to be disabled` | `save_params`, `reset_factory_params`, `activate_license` while enabled | Flash writes and activation are only safe with no torque authority. |
-| `set the parameter ... to true` | `enter_dfu`, `activate_license` while the opt-in parameter is false | Both are irreversible or trust-relevant; the default is off. |
+| `requires the motors to be disabled` | `save_params`, `reset_factory_params`, `commit_model` while enabled | Flash writes are only safe with no torque authority. |
+| `set the parameter ... to true` | `enter_dfu` (`allow_dfu`), every motion service (`allow_motion`) while its opt-in parameter is false | One is irreversible, the other energises the arm; both default to off. |
 | `not connected` | any service with no live link | Names the usual causes: USB cable, 24 V supply, or the ros2_control stack holding the port. |
 | `axis index must be 0..N-1` | a joint service with an index outside the reported axes | A typo would otherwise address the wrong axis. |
 
@@ -539,12 +655,12 @@ an unsafe write.
 
 ### Not exposed
 
-Trajectory execution, cartesian servo and teleoperation, firmware cartesian planning, model
-import, log capture and `kin_bench` have no service here. Motion control belongs to the
-ros2_control stack (`joint_trajectory_controller`, MoveIt 2), and servo needs a controller
-in the command path rather than a service that hands over one pose at a time. The reasons
-are in [`docs/command-set.md`](../docs/command-set.md), which also carries the ownership
-rules, the error semantics and the compatibility table.
+Cartesian servo and teleoperation have no service here: servo needs a controller in the
+command path rather than a service that hands over one pose at a time, and MoveIt Servo plus
+`litearm_servo_control` are where that lives. Trajectory execution, firmware cartesian
+planning, the model store and the tick log are exposed above, behind `allow_motion` where
+they can move the arm. The ownership rules, the error semantics and the compatibility table
+are in [`docs/command-set.md`](../docs/command-set.md).
 
 ## Tests
 

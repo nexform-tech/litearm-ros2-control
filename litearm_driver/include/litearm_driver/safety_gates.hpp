@@ -59,6 +59,31 @@ GateResult check_parameter_allows(bool allowed, const std::string & parameter_na
 /// Most services need a live link; the message names the likely cause.
 GateResult check_connected(bool connected);
 
+/// Speeds the motion services take are fractions of full speed: 0 < speed <= 1. The SDK
+/// and the firmware both read 30 as 30x, not as 30 percent.
+GateResult check_speed_fraction(double speed);
+
+/// Every value has to be finite. The two-argument form checks only that; the
+/// three-argument form also requires an exact length, which is how a joint-length array
+/// is checked against the axes the firmware reported.
+GateResult check_finite_values(const std::vector<double> & values, const char * what);
+GateResult check_finite_values(
+  const std::vector<double> & values, std::size_t expected, const char * what);
+
+/// A pose: six finite values, metres and radians.
+GateResult check_finite_pose(const std::array<double, 6> & pose);
+
+/// A three-component vector, such as the gravity vector.
+GateResult check_finite_vector3(const std::array<double, 3> & values);
+
+/// A log dump file name: a plain name inside the node's log directory, never a path. The
+/// service writes files, so where they land is not the caller's choice.
+GateResult check_log_filename(const std::string & filename);
+
+/// Deadlines, not durations to guess: a negative timeout is a mistake except where the
+/// SDK documents -1 as "use the default".
+GateResult check_timeout(double timeout, const char * what);
+
 }  // namespace litearm_driver
 
 #endif  // LITEARM_DRIVER__SAFETY_GATES_HPP_
