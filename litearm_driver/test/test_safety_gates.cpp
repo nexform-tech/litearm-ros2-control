@@ -135,5 +135,50 @@ TEST(SafetyGates, DisconnectedMessageNamesTheLikelyCauses)
   EXPECT_NE(gate.message.find("ros2_control"), std::string::npos);
 }
 
+TEST(SafetyGates, SpeedFractionRejectsPercentAndOutOfRange)
+{
+  EXPECT_TRUE(check_speed_fraction(0.5).ok);
+  EXPECT_TRUE(check_speed_fraction(1.0).ok);
+  EXPECT_FALSE(check_speed_fraction(0.0).ok);
+  EXPECT_FALSE(check_speed_fraction(30.0).ok);          // 30x, not 30 percent
+  EXPECT_FALSE(check_speed_fraction(-0.1).ok);
+  EXPECT_FALSE(check_speed_fraction(std::nan("")).ok);
+}
+
+TEST(SafetyGates, FiniteValuesCheckLengthAndFiniteness)
+{
+  EXPECT_TRUE(check_finite_values({1.0, 2.0}, "values").ok);
+  EXPECT_FALSE(check_finite_values({}, "values").ok);
+  EXPECT_TRUE(check_finite_values({1.0, 2.0}, 2u, "q").ok);
+  EXPECT_FALSE(check_finite_values({1.0}, 7u, "q").ok);
+  EXPECT_FALSE(check_finite_values({1.0, std::nan("")}, "values").ok);
+  EXPECT_FALSE(check_finite_values({std::numeric_limits<double>::infinity()}, "values").ok);
+}
+
+TEST(SafetyGates, PosesAndVectorsAreCheckedByShape)
+{
+  EXPECT_TRUE(check_finite_pose({0.0, 0.0, 0.0, 0.0, 0.0, 0.0}).ok);
+  EXPECT_FALSE(check_finite_pose({0.0, 0.0, 0.0, 0.0, 0.0, std::nan("")}).ok);
+  EXPECT_TRUE(check_finite_vector3({0.0, 0.0, -9.81}).ok);
+  EXPECT_FALSE(check_finite_vector3({0.0, 0.0, std::nan("")}).ok);
+}
+
+TEST(SafetyGates, LogFilenameIsANameNotAPath)
+{
+  EXPECT_TRUE(check_log_filename("tick_log.bin").ok);
+  EXPECT_FALSE(check_log_filename("").ok);
+  EXPECT_FALSE(check_log_filename("sub/dir.bin").ok);
+  EXPECT_FALSE(check_log_filename("..").ok);
+  EXPECT_FALSE(check_log_filename("..\\escape.bin").ok);
+}
+
+TEST(SafetyGates, TimeoutIsADeadlineNotANegativeGuess)
+{
+  EXPECT_TRUE(check_timeout(0.0, "timeout").ok);
+  EXPECT_TRUE(check_timeout(1.5, "timeout").ok);
+  EXPECT_FALSE(check_timeout(-1.0, "timeout").ok);
+  EXPECT_FALSE(check_timeout(std::nan(""), "timeout").ok);
+}
+
 }  // namespace
 }  // namespace litearm_driver

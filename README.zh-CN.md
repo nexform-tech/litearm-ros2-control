@@ -16,8 +16,10 @@ SDK。没有辅助进程，也没有共享内存：`read()` 取 SDK 缓存好的
 | `litearm_driver` | 独立生命周期节点，自己持有同一条 USB 链路，把 SDK 的管理类指令以服务形式暴露出来。只能**替代**控制栈运行，不能与之并存。 |
 | `litearm_msgs` | `litearm_driver` 使用的消息与服务定义。 |
 
-控制栈与驱动节点互斥：两者都会打开同一个串口，SDK 会对其加独占锁。驱动的完整指令集见
-[docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)（英文原文为 [command-set.md](docs/command-set.md)）。
+控制栈与驱动节点互斥：两者都会打开同一个串口，SDK 会对其加独占锁。启动命令见
+[docs/quickstart.zh-CN.md](docs/quickstart.zh-CN.md)（英文原文为 [quickstart.md](docs/quickstart.md)）；
+驱动的完整指令集见 [docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)
+（英文原文为 [command-set.md](docs/command-set.md)）。
 
 ## 特点
 
@@ -178,7 +180,7 @@ arm_controller:
 ## 维护驱动
 
 `litearm_driver` 是接触机械臂的第二条通路。它自己打开 USB 链路，把 SDK 的管理类调用暴露为服务：
-使能、park、清故障、进入零重力、调全局速度倍率与前馈、读写关节参数表、读取与激活授权、进入 DFU。
+使能、park、清故障、进入零重力、调全局速度倍率与前馈、读写关节参数表、读取授权记录（授权状态在状态消息里）、进入 DFU。
 
 ```bash
 ros2 launch litearm_driver litearm_driver.launch.py
@@ -187,7 +189,8 @@ ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: true}"
 ```
 
 **不要让驱动节点与控制栈同时运行。** 驱动面向维护与开机验收，不做运动控制：轨迹、伺服、遥操作
-仍然留在控制通路里。每个服务与字段见 [litearm_driver/README.zh-CN.md](litearm_driver/README.zh-CN.md)，每条拒绝规则及其原因见 [docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)。
+仍然留在控制通路里。每个服务与字段见 [litearm_driver/README.zh-CN.md](litearm_driver/README.zh-CN.md)，每条拒绝规则及其原因见
+[docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)。
 
 ## 测试
 

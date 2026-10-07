@@ -31,7 +31,11 @@ set(LITEARM_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../litearm-cpp"
 
 find_package(litearm CONFIG QUIET)
 
-if(litearm_FOUND)
+# ⚠ The robot description package is also called `litearm`, so find_package can resolve
+# to its CMake config instead of the SDK's -- they share a name, and the description
+# package exports no target at all. Only the SDK exports litearm::litearm, so the
+# target, not litearm_FOUND, is the test for "the SDK is installed".
+if(litearm_FOUND AND TARGET litearm::litearm)
   message(STATUS "Using installed litearm (${litearm_DIR})")
 else()
   if(NOT EXISTS "${LITEARM_CPP_DIR}/CMakeLists.txt")
@@ -56,6 +60,9 @@ endif()
 # ─────────────────────────────────────────────────────────────────────────────
 add_library(litearm_driver_node STATIC
   src/litearm_driver_node.cpp
+  src/litearm_driver_motion.cpp
+  src/litearm_driver_model.cpp
+  src/litearm_driver_diagnostics.cpp
   src/safety_gates.cpp
 )
 target_include_directories(litearm_driver_node PUBLIC

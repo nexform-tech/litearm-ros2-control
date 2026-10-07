@@ -13,13 +13,12 @@ against the driver, or add an interface the driver must expose.
 
 ## Services
 
-Fourteen services carry values; the rest of the driver's surface uses `std_srvs`.
+Forty-one services carry values; the rest of the driver's surface uses `std_srvs`. There is no licence service: the
+driver reads the licence record once while configuring and reports it in the status message.
 
 | Service | Purpose |
 | --- | --- |
 | `GetStatus` | On-demand status snapshot with a timeout, instead of waiting for the topic. |
-| `GetLicense` | Read the device licence record. |
-| `ActivateLicense` | Submit a vendor-signed activation credential. |
 | `GetJointParams` | Read one axis or the whole joint parameter table. |
 | `SetJointGains` | Write `kp`/`kd`/`tau_max` for one axis. |
 | `SetJointLimits` | Write the soft limits of one axis. |
@@ -31,6 +30,39 @@ Fourteen services carry values; the rest of the driver's surface uses `std_srvs`
 | `SetFeedforwardScalar` | Write one feedforward scalar. |
 | `SetFeedforwardVector` | Write one feedforward vector. |
 | `GetFeedforwardScalar` | Read one feedforward scalar or the feedforward mask back. |
+| `Trigger` | Re-open the link after an unplugged cable. |
+| `Trigger` | Walk to the URDF zero pose at the firmware's low speed. |
+| `GetTcp` | Read the firmware's current tool pose. |
+| `GetDiagnostics` | Host counters, per-id message rates, link and capability flags. |
+| `KinBench` | Run the firmware's kinematics benchmark and parse the reply. |
+| `MoveJ` | Joint move on the firmware's per-axis S-curve. |
+| `MoveJSync` | Joint move with every axis on one synchronised curve. |
+| `MoveP` | Pose move: the firmware solves the IK and walks its own curve. |
+| `MoveJs` | Send one MOVE_JS frame, the streaming primitive. |
+| `SendMit` | One axis of raw MIT passthrough. |
+| `SendMitAll` | Whole-arm MIT passthrough, one frame. |
+| `MoveL` | Straight-line cartesian move, planned by the firmware. |
+| `MoveC` | Circular cartesian move through a via pose. |
+| `MovePath` | Multi-waypoint cartesian path. |
+| `PollCart` | Outcome of an in-flight cartesian request. |
+| `InverseKinematics` | Solve a pose into joint angles; does not move. |
+| `GetFeedforwardVector` | Read one feedforward vector back. |
+| `GetFeedforwardMask` | Read the feedforward enable mask back. |
+| `GetFeedforwardCatalog` | The SDK's item tables, answered without a session. |
+| `SetGravityScale` | Scale the gravity feedforward per axis. |
+| `SetInertiaScale` | Scale the inertia feedforward per axis. |
+| `SetGravityVector` | Write the gravity vector the model uses. |
+| `ProbeModel` | Ask whether the firmware has a dynamics model store. |
+| `GetModelBody` | Read one body of the dynamics model. |
+| `SetModelBody` | Stage one body of the dynamics model in RAM. |
+| `GetModelJm` | Read the joint-space model terms. |
+| `SetModelJm` | Stage the joint-space model terms in RAM. |
+| `CommitModel` | Write the staged model to flash. |
+| `Trigger` | Drop the staged model. |
+| `GetModelStatus` | Override level, staged mask and the dirty flag. |
+| `LogStart` | Start recording the firmware's 300 Hz control ticks. |
+| `Trigger` | Stop recording. |
+| `LogDump` | Read the recording back and write it to a file. |
 
 The full command set, including the `std_srvs` services and the safety rules behind them,
 is in [`docs/command-set.md`](../docs/command-set.md).

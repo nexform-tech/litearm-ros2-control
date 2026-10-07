@@ -68,7 +68,6 @@ public:
   using LitearmDriverNode::connected;
   using LitearmDriverNode::motors_enabled;
 
-  using LitearmDriverNode::handle_activate_license;
   using LitearmDriverNode::handle_clear_faults;
   using LitearmDriverNode::handle_disable;
   using LitearmDriverNode::handle_emergency_stop;
@@ -76,7 +75,6 @@ public:
   using LitearmDriverNode::handle_enter_dfu;
   using LitearmDriverNode::handle_get_feedforward_scalar;
   using LitearmDriverNode::handle_get_joint_params;
-  using LitearmDriverNode::handle_get_license;
   using LitearmDriverNode::handle_get_status;
   using LitearmDriverNode::handle_park;
   using LitearmDriverNode::handle_reset;
@@ -92,6 +90,39 @@ public:
   using LitearmDriverNode::handle_set_payload;
   using LitearmDriverNode::handle_set_speed_scaling;
   using LitearmDriverNode::handle_zero_g;
+  using LitearmDriverNode::handle_get_tcp;
+  using LitearmDriverNode::handle_get_diagnostics;
+  using LitearmDriverNode::handle_kin_bench;
+  using LitearmDriverNode::handle_move_j;
+  using LitearmDriverNode::handle_move_j_sync;
+  using LitearmDriverNode::handle_move_p;
+  using LitearmDriverNode::handle_move_js;
+  using LitearmDriverNode::handle_send_mit;
+  using LitearmDriverNode::handle_send_mit_all;
+  using LitearmDriverNode::handle_move_l;
+  using LitearmDriverNode::handle_move_c;
+  using LitearmDriverNode::handle_move_path;
+  using LitearmDriverNode::handle_poll_cart;
+  using LitearmDriverNode::handle_inverse_kinematics;
+  using LitearmDriverNode::handle_get_feedforward_vector;
+  using LitearmDriverNode::handle_get_feedforward_mask;
+  using LitearmDriverNode::handle_get_feedforward_catalog;
+  using LitearmDriverNode::handle_set_gravity_scale;
+  using LitearmDriverNode::handle_set_inertia_scale;
+  using LitearmDriverNode::handle_set_gravity_vector;
+  using LitearmDriverNode::handle_probe_model;
+  using LitearmDriverNode::handle_get_model_body;
+  using LitearmDriverNode::handle_set_model_body;
+  using LitearmDriverNode::handle_get_model_jm;
+  using LitearmDriverNode::handle_set_model_jm;
+  using LitearmDriverNode::handle_commit_model;
+  using LitearmDriverNode::handle_get_model_status;
+  using LitearmDriverNode::handle_log_start;
+  using LitearmDriverNode::handle_log_dump;
+  using LitearmDriverNode::handle_reconnect;
+  using LitearmDriverNode::handle_home;
+  using LitearmDriverNode::handle_revert_model;
+  using LitearmDriverNode::handle_log_stop;
 
   std::shared_ptr<litearm::testing::FakeTransport> fake() const { return fake_; }
 
@@ -212,11 +243,44 @@ TEST_F(LitearmDriverTest, ActivationAdvertisesTheWholeCommandSet)
   const std::vector<std::string> expected{
     "/enable", "/disable", "/reset", "/clear_faults", "/emergency_stop", "/park",
     "/save_params", "/reset_factory_params", "/enter_dfu", "/zero_g",
-    "/get_status", "/get_license", "/activate_license",
+    "/get_status",
     "/set_speed_scaling", "/set_motion_mode", "/set_payload",
     "/set_feedforward_mask", "/set_feedforward_preset", "/set_feedforward_scalar",
     "/set_feedforward_vector", "/get_feedforward_scalar",
-    "/get_joint_params", "/set_joint_gains", "/set_joint_limits"};
+    "/get_joint_params", "/set_joint_gains", "/set_joint_limits",
+    "/reconnect",
+    "/home",
+    "/get_tcp",
+    "/get_diagnostics",
+    "/kin_bench",
+    "/move_j",
+    "/move_j_sync",
+    "/move_p",
+    "/move_js",
+    "/send_mit",
+    "/send_mit_all",
+    "/move_l",
+    "/move_c",
+    "/move_path",
+    "/poll_cart",
+    "/inverse_kinematics",
+    "/get_feedforward_vector",
+    "/get_feedforward_mask",
+    "/get_feedforward_catalog",
+    "/set_gravity_scale",
+    "/set_inertia_scale",
+    "/set_gravity_vector",
+    "/probe_model",
+    "/get_model_body",
+    "/set_model_body",
+    "/get_model_jm",
+    "/set_model_jm",
+    "/commit_model",
+    "/revert_model",
+    "/get_model_status",
+    "/log_start",
+    "/log_stop",
+    "/log_dump"};
   for (const std::string & name : expected) {
     EXPECT_NE(services.find(name), services.end()) << name;
   }
@@ -287,14 +351,8 @@ TEST_F(LitearmDriverTest, RefusedArgumentsSendNoFrame)
     [&](auto response) {driver_->handle_set_feedforward_vector(bad_vector, response);});
   EXPECT_FALSE(vector->success);
 
-  // Both opt-in services are off by default.
+  // The one remaining opt-in service is off by default.
   EXPECT_FALSE(trigger(&TestDriver::handle_enter_dfu)->success);
-
-  auto mac_request = std::make_shared<litearm_msgs::srv::ActivateLicense::Request>();
-  mac_request->mac.fill(0);
-  const auto licence = invoke<litearm_msgs::srv::ActivateLicense::Response>(
-    [&](auto response) {driver_->handle_activate_license(mac_request, response);});
-  EXPECT_FALSE(licence->success);
 
   // A gate that refuses has to refuse before the frame, not after the firmware rejects it.
   EXPECT_EQ(driver_->fake()->tx_count(), before);
@@ -447,38 +505,6 @@ TEST_F(LitearmDriverTest, JointIndexOutOfRangeSendsNoFrame)
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
-// licence
-// ────────────────────────────────────────────────────────────────────────────────
-
-TEST_F(LitearmDriverTest, LicenseIsReadAndActivated)
-{
-  ASSERT_TRUE(prepare());
-
-  auto read = std::make_shared<litearm_msgs::srv::GetLicense::Request>();
-  const auto licence = invoke<litearm_msgs::srv::GetLicense::Response>(
-    [&](auto out) {driver_->handle_get_license(read, out);});
-  ASSERT_TRUE(licence->success) << licence->message;
-  EXPECT_EQ(licence->uid_hex.size(), 24u);
-
-  // Start from an unactivated device, disable the motors, then allow the service.
-  driver_->fake()->activated = false;
-  ASSERT_TRUE(trigger(&TestDriver::handle_disable)->success);
-  ASSERT_TRUE(wait_for([this]() {return !driver_->motors_enabled();}));
-  driver_->set_parameter(rclcpp::Parameter("allow_license_activation", true));
-
-  auto request = std::make_shared<litearm_msgs::srv::ActivateLicense::Request>();
-  request->cust_id = 7;
-  request->issued = 20261006;
-  request->flags = 0;
-  request->mac.fill(0xAB);
-  const auto activated = invoke<litearm_msgs::srv::ActivateLicense::Response>(
-    [&](auto out) {driver_->handle_activate_license(request, out);});
-  ASSERT_TRUE(activated->success) << activated->message;
-  EXPECT_TRUE(driver_->fake()->activated);
-  EXPECT_EQ(activated->state, 1);
-}
-
-// ────────────────────────────────────────────────────────────────────────────────
 // zero gravity
 // ────────────────────────────────────────────────────────────────────────────────
 
@@ -578,6 +604,104 @@ TEST_F(LitearmDriverTest, StatusIsPublishedOnTheRelativeTopic)
     executor.spin_once(std::chrono::milliseconds(50));
   }
   EXPECT_GT(received.load(), 0);
+}
+
+TEST_F(LitearmDriverTest, MotionServicesAreRefusedWithoutAllowMotion)
+{
+  ASSERT_TRUE(prepare());
+  auto request = std::make_shared<litearm_msgs::srv::MoveJ::Request>();
+  request->q = std::vector<double>(7, 0.1);
+  request->speed = 0.2;
+
+  const auto response = invoke<litearm_msgs::srv::MoveJ::Response>(
+    [this, &request](const std::shared_ptr<litearm_msgs::srv::MoveJ::Response> & out) {
+      driver_->handle_move_j(request, out);
+    });
+  EXPECT_FALSE(response->success);
+  EXPECT_NE(response->message.find("allow_motion"), std::string::npos) << response->message;
+
+  const auto homed = trigger(&TestDriver::handle_home);
+  EXPECT_FALSE(homed->success);
+  EXPECT_NE(homed->message.find("allow_motion"), std::string::npos) << homed->message;
+}
+
+TEST_F(LitearmDriverTest, AllowMotionUnlocksThemAndTheSpeedGateStillBites)
+{
+  ASSERT_TRUE(prepare());
+  driver_->set_parameter(rclcpp::Parameter("allow_motion", true));
+
+  auto percent = std::make_shared<litearm_msgs::srv::MoveJ::Request>();
+  percent->q = std::vector<double>(7, 0.1);
+  percent->speed = 30.0;   // 30x, not 30 percent
+  const auto refused = invoke<litearm_msgs::srv::MoveJ::Response>(
+    [this, &percent](const std::shared_ptr<litearm_msgs::srv::MoveJ::Response> & out) {
+      driver_->handle_move_j(percent, out);
+    });
+  EXPECT_FALSE(refused->success);
+  EXPECT_NE(refused->message.find("fraction"), std::string::npos) << refused->message;
+
+  auto wrong_length = std::make_shared<litearm_msgs::srv::MoveJ::Request>();
+  wrong_length->q = std::vector<double>(6, 0.1);
+  wrong_length->speed = 0.2;
+  const auto short_q = invoke<litearm_msgs::srv::MoveJ::Response>(
+    [this, &wrong_length](const std::shared_ptr<litearm_msgs::srv::MoveJ::Response> & out) {
+      driver_->handle_move_j(wrong_length, out);
+    });
+  EXPECT_FALSE(short_q->success);
+  EXPECT_NE(short_q->message.find("axes"), std::string::npos) << short_q->message;
+}
+
+TEST_F(LitearmDriverTest, InverseKinematicsIsNotBehindAllowMotion)
+{
+  ASSERT_TRUE(prepare());
+  auto request = std::make_shared<litearm_msgs::srv::InverseKinematics::Request>();
+  request->pose = std::array<double, 6>{0.3, 0.0, 0.4, 3.14, 0.0, 0.0};
+  request->timeout = 0.5;
+
+  const auto response = invoke<litearm_msgs::srv::InverseKinematics::Response>(
+    [this, &request](const std::shared_ptr<litearm_msgs::srv::InverseKinematics::Response> & out) {
+      driver_->handle_inverse_kinematics(request, out);
+    });
+  // Whether the fake firmware solves it or not, the refusal must not be the motion switch:
+  // this service only computes.
+  EXPECT_EQ(response->message.find("allow_motion"), std::string::npos) << response->message;
+}
+
+TEST_F(LitearmDriverTest, FeedforwardCatalogNeedsNoSession)
+{
+  // Never configured: the tables are compile-time constants, so the service still answers.
+  const auto response = invoke<litearm_msgs::srv::GetFeedforwardCatalog::Response>(
+    [this](const std::shared_ptr<litearm_msgs::srv::GetFeedforwardCatalog::Response> & out) {
+      driver_->handle_get_feedforward_catalog(
+        std::make_shared<litearm_msgs::srv::GetFeedforwardCatalog::Request>(), out);
+    });
+  EXPECT_TRUE(response->success);
+  EXPECT_FALSE(response->vector_items.empty());
+  EXPECT_FALSE(response->scalar_items.empty());
+  EXPECT_NE(response->vector_items.front().find(": "), std::string::npos);
+}
+
+TEST_F(LitearmDriverTest, DiagnosticsRefuseWhenThereIsNoSession)
+{
+  const auto response = invoke<litearm_msgs::srv::GetDiagnostics::Response>(
+    [this](const std::shared_ptr<litearm_msgs::srv::GetDiagnostics::Response> & out) {
+      driver_->handle_get_diagnostics(
+        std::make_shared<litearm_msgs::srv::GetDiagnostics::Request>(), out);
+    });
+  EXPECT_FALSE(response->success);
+  EXPECT_FALSE(response->message.empty());
+}
+
+TEST_F(LitearmDriverTest, LogDumpRefusesAPath)
+{
+  auto request = std::make_shared<litearm_msgs::srv::LogDump::Request>();
+  request->filename = "../../etc/passwd";
+  const auto response = invoke<litearm_msgs::srv::LogDump::Response>(
+    [this, &request](const std::shared_ptr<litearm_msgs::srv::LogDump::Response> & out) {
+      driver_->handle_log_dump(request, out);
+    });
+  EXPECT_FALSE(response->success);
+  EXPECT_NE(response->message.find("plain file name"), std::string::npos) << response->message;
 }
 
 }  // namespace

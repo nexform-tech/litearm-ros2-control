@@ -14,5 +14,4 @@
     diagnostics_rate_hz: 1.0
     zero_g_keepalive_period_s: 0.04 # [0.005, 0.10)
     allow_dfu: false                # enter_dfu is refused until this is true
-    allow_license_activation: false # activate_license is refused until this is true
     frame_id: ""
