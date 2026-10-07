@@ -4,9 +4,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <exception>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <pluginlib/class_list_macros.hpp>
@@ -21,6 +24,12 @@ namespace litearm_ros2_control
 
 namespace
 {
+
+/// Consecutive refused command frames that stop the controllers. At the documented 100 Hz
+/// update rate this is half a second of the firmware holding instead of following -- long
+/// enough to ride out a hiccup, short enough that the controllers do not keep planning
+/// trajectories the arm is not executing.
+constexpr int kWriteFailureLimit = 50;
 
 std::string trim(const std::string & value)
 {
@@ -154,6 +163,7 @@ hardware_interface::CallbackReturn LitearmSystem::on_init(
   port_ = param("port");
   export_diagnostics_ = parse_bool(param("export_diagnostic_interfaces"), true);
   auto_enable_ = parse_bool(param("auto_enable"), true);
+  reset_faults_on_configure_ = parse_bool(param("reset_faults_on_configure"), false);
   disable_on_shutdown_ = parse_bool(param("disable_on_shutdown"), false);
 
   const std::string attempts_raw = param("enable_attempts");
@@ -187,9 +197,11 @@ hardware_interface::CallbackReturn LitearmSystem::on_init(
   fw_velocity_.assign(num_joints(), 0.0);
 
   RCLCPP_INFO(
-    logger_, "Initialized: %zu joints, port='%s', diagnostics=%s, auto_enable=%s.",
+    logger_, "Initialized: %zu joints, port='%s', diagnostics=%s, auto_enable=%s, "
+    "reset_faults_on_configure=%s.",
     num_joints(), port_.empty() ? "auto-discover" : port_.c_str(),
-    export_diagnostics_ ? "on" : "off", auto_enable_ ? "on" : "off");
+    export_diagnostics_ ? "on" : "off", auto_enable_ ? "on" : "off",
+    reset_faults_on_configure_ ? "on" : "off");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -230,6 +242,29 @@ hardware_interface::CallbackReturn LitearmSystem::on_configure(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
+  if (reset_faults_on_configure_)
+  {
+    // A latched EMERGENCY / joint_fault makes the firmware refuse ENABLE, which used to
+    // mean a separate driver session before every bring-up. The reset runs here -- link up,
+    // nothing enabled, nothing streamed yet -- and if the cause is still present the firmware
+    // sets the bit again and the ENABLE in on_activate() fails loudly.
+    try
+    {
+      arm_->reset();
+      RCLCPP_WARN(
+        logger_, "Cleared the latched arm fault (reset_faults_on_configure=true). Make sure "
+        "the cause is gone before the arm is enabled.");
+    }
+    catch (const std::exception & e)
+    {
+      RCLCPP_FATAL(
+        logger_, "reset_faults_on_configure=true, but the arm refused the reset: %s", e.what());
+      arm_->close();
+      arm_.reset();
+      return hardware_interface::CallbackReturn::ERROR;
+    }
+  }
+
   mode_ = Mode::kInactive;
   have_state_ = false;
   reported_disconnected_ = false;
@@ -251,25 +286,8 @@ hardware_interface::CallbackReturn LitearmSystem::on_activate(
   // Latch the command reference to the measured position before enabling. Without this the
   // first frame would carry the storage default (0 rad) and the arm would snap toward its
   // zero pose the instant the motors energize.
-  try
+  if (!refresh_state("before enabling"))
   {
-    const auto msg = arm_->get_state(false);
-    if (msg.value)
-    {
-      last_feedback_stamp_ = msg.timestamp;
-      apply_state(*msg.value);
-    }
-  }
-  catch (const std::exception & e)
-  {
-    RCLCPP_ERROR(logger_, "Cannot read the initial state: %s", e.what());
-    return hardware_interface::CallbackReturn::ERROR;
-  }
-  if (!have_state_)
-  {
-    RCLCPP_ERROR(
-      logger_, "No status frame yet; refusing to activate, since the command reference "
-      "cannot be seeded from the measured position.");
     return hardware_interface::CallbackReturn::ERROR;
   }
   latch_command_to_measured();
@@ -289,17 +307,125 @@ hardware_interface::CallbackReturn LitearmSystem::on_activate(
     }
   }
 
+  // Wait for the arm to actually be energized before streaming anything. The ENABLE ACK only
+  // means "registered": the firmware still has to write CMODE for every axis, and until that
+  // finishes it answers MOVE_JS with ERR{0x03,0x02}, whose text ("non-finite") describes the
+  // firmware's own not-yet-valid reference rather than anything in the frame. The reference
+  // daemon waits on the same status bit (wait_enabled) before its first frame.
+  if (auto_enable_)
+  {
+    constexpr int kEnablePollAttempts = 300;  // 300 x 10 ms = 3 s, the daemon's budget
+    bool energized = false;
+    for (int i = 0; i < kEnablePollAttempts && !energized; ++i)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      try
+      {
+        const auto msg = arm_->get_state(false);
+        if (msg.value)
+        {
+          last_feedback_stamp_ = msg.timestamp;
+          apply_state(*msg.value);
+          energized = state_enabled_;
+        }
+      }
+      catch (const std::exception & e)
+      {
+        RCLCPP_WARN(logger_, "Status read while waiting for ENABLE failed: %s", e.what());
+      }
+    }
+    if (!energized)
+    {
+      RCLCPP_FATAL(
+        logger_, "The arm did not report itself enabled within 3 s of the ENABLE ACK. "
+        "Check the license, the emergency stop and the axis fault bits before retrying, "
+        "or start with auto_enable:=false to inspect the state without energizing.");
+      return hardware_interface::CallbackReturn::ERROR;
+    }
+  }
+
+  // Enabling also moves the arm (the brakes release and the position loop takes over), and
+  // the firmware rejects a MOVE_JS frame whose dq is all zero and whose target is more than
+  // JS_ZERO_DQ_EPS (5 mrad) from the measurement -- which is precisely the frame built from
+  // the pre-enable measurement. Re-read and re-latch so the first frame says where the arm
+  // actually is now.
+  if (!refresh_state("after enabling"))
+  {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+  latch_command_to_measured();
+
   mode_ = Mode::kActive;
   // Stream one frame now so the firmware watchdog is fed before the first write() tick.
+  //
+  // This is the frame that gets refused in practice. Enabling moves the arm -- the brakes
+  // release, the position loop takes over and the joints settle -- and the firmware refuses
+  // a zero-dq MOVE_JS whose target is more than JS_ZERO_DQ_EPS (5 mrad) from the measurement
+  // it holds at that instant. The reference here comes from a status frame a few
+  // milliseconds old, so one refusal is normal. Failing the activation on it takes the whole
+  // controller_manager down, so re-read, re-latch and retry: ten attempts 10 ms apart covers
+  // the settle and still stays inside the firmware's 100 ms command watchdog.
+  constexpr int kSeedAttempts = 10;
+  constexpr int kSeedIntervalMs = 10;
+  std::string last_error;
+  bool seeded = false;
+  for (int attempt = 1; attempt <= kSeedAttempts && !seeded; ++attempt)
+  {
+    if (attempt > 1)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(kSeedIntervalMs));
+      if (!refresh_state("while seeding the first frame"))
+      {
+        mode_ = Mode::kStopped;
+        return hardware_interface::CallbackReturn::ERROR;
+      }
+      latch_command_to_measured();
+    }
+    try
+    {
+      stream_command();
+      seeded = true;
+    }
+    catch (const std::exception & e)
+    {
+      last_error = e.what();
+    }
+  }
+  if (!seeded)
+  {
+    std::string q_text;
+    std::string dq_text;
+    for (double v : fw_position_)
+    {
+      q_text += std::to_string(v) + " ";
+    }
+    for (double v : fw_velocity_)
+    {
+      dq_text += std::to_string(v) + " ";
+    }
+    RCLCPP_FATAL(
+      logger_, "The seed command frame was refused %d times: %s\n  q_ref=[%s]\n  "
+      "dq_ref=[%s]",
+      kSeedAttempts, last_error.c_str(), q_text.c_str(), dq_text.c_str());
+    mode_ = Mode::kStopped;
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  // Declare PARK on the firmware. While the command stream keeps coming this changes
+  // nothing; if the stream stops -- this process crashes, is SIGKILLed, or the cable comes
+  // out -- the firmware holds with full stiffness instead of decaying to its fail-soft
+  // 0.6x hold. The reference daemon declares it on the way out; declaring it up front also
+  // covers the exit this process does not get to run. Not fatal if it fails: the arm still
+  // runs, it is just less graceful about an unexpected stop.
   try
   {
-    stream_command();
+    arm_->park();
   }
   catch (const std::exception & e)
   {
-    RCLCPP_FATAL(logger_, "First command frame failed: %s", e.what());
-    mode_ = Mode::kStopped;
-    return hardware_interface::CallbackReturn::ERROR;
+    RCLCPP_WARN(
+      logger_, "Could not declare PARK on the firmware (%s); an unexpected stop would leave "
+      "the arm on its fail-soft hold.", e.what());
   }
 
   RCLCPP_INFO(
@@ -458,6 +584,7 @@ void LitearmSystem::apply_state(const litearm::RobotState & state)
 {
   const double now = litearm::steady_clock_instance().now_s();
   const double age = last_feedback_stamp_ > 0.0 ? now - last_feedback_stamp_ : -1.0;
+  bool finite = true;
   for (std::size_t i = 0; i < num_joints(); ++i)
   {
     const std::size_t axis = joint_to_axis_[i];
@@ -466,6 +593,21 @@ void LitearmSystem::apply_state(const litearm::RobotState & state)
       continue;  // firmware reported fewer axes than the URDF declared
     }
     const litearm::JointState & j = state.joints[axis];
+    if (!std::isfinite(j.q) || !std::isfinite(j.dq) || !std::isfinite(j.tau))
+    {
+      // A faulted or disabled axis reports non-finite values. Copying them would put NaN
+      // into /joint_states and, worse, into the command reference this frame seeds: the
+      // firmware answers such a frame with ERR 03,02 and on a real arm that surfaces only
+      // as "first command frame failed". The last finite reading stays in place and
+      // state_finite_ carries the verdict to on_activate().
+      if (finite)
+      {
+        nonfinite_axis_ = axis + 1;
+        nonfinite_error_ = static_cast<int>(j.err);
+      }
+      finite = false;
+      continue;
+    }
     state_position_[i] = j.q;
     state_velocity_[i] = j.dq;
     state_effort_[i] = j.tau;
@@ -477,6 +619,59 @@ void LitearmSystem::apply_state(const litearm::RobotState & state)
     state_feedback_age_[i] = age;
   }
   have_state_ = true;
+  state_finite_ = finite;
+  state_enabled_ = state.enabled();
+  if (finite)
+  {
+    nonfinite_reported_ = false;  // a healthy frame re-arms the message for the next fault
+    return;
+  }
+  if (!nonfinite_reported_)
+  {
+    nonfinite_reported_ = true;
+    RCLCPP_ERROR(
+      logger_,
+      "Axis %zu reports a non-finite position/velocity/torque (err=0x%02X). Keeping the "
+      "last finite reading; clear the fault (/litearm/reset) before activating.",
+      nonfinite_axis_, nonfinite_error_);
+  }
+}
+
+bool LitearmSystem::refresh_state(const char * when)
+{
+  try
+  {
+    const auto msg = arm_->get_state(false);
+    if (msg.value)
+    {
+      last_feedback_stamp_ = msg.timestamp;
+      apply_state(*msg.value);
+    }
+  }
+  catch (const std::exception & e)
+  {
+    RCLCPP_ERROR(logger_, "Cannot read the state %s: %s", when, e.what());
+    return false;
+  }
+  if (!have_state_)
+  {
+    RCLCPP_ERROR(
+      logger_, "No status frame yet (%s); refusing to activate, since the command "
+      "reference cannot be seeded from the measured position.", when);
+    return false;
+  }
+  if (!state_finite_)
+  {
+    RCLCPP_FATAL(
+      logger_,
+      "Refusing to activate: axis %zu of the status frame read %s is not finite "
+      "(err=0x%02X). An axis in this state cannot be commanded; clear the fault and "
+      "re-anchor the pose first (litearm_driver: /litearm/reset, or "
+      "/litearm/clear_faults), then activate again.",
+      nonfinite_axis_, when, nonfinite_error_);
+    return false;
+  }
+  return true;
 }
 
 void LitearmSystem::latch_command_to_measured()
@@ -490,12 +685,36 @@ void LitearmSystem::latch_command_to_measured()
 
 void LitearmSystem::stream_command()
 {
+  // Since 2026-09-24 the firmware rejects a MOVE_JS frame whose dq is all zero and whose
+  // target differs from the measurement by more than JS_ZERO_DQ_EPS (5 mrad) -- it answers
+  // ERR{0x03,0x02}, which the SDK's error table labels "non-finite", and a rejected frame
+  // does not feed the watchdog. Under an all-zero dq the firmware freezes its own reference
+  // and ignores the position field anyway, so filling that field with the freshest
+  // measurement satisfies the gate and changes nothing the arm does.
+  const bool holding = std::all_of(
+    command_velocity_.begin(), command_velocity_.end(),
+    [](double v) { return v == 0.0; });
   for (std::size_t i = 0; i < num_joints(); ++i)
   {
     const std::size_t axis = joint_to_axis_[i];
-    fw_position_[axis] = command_position_[i];
+    fw_position_[axis] = (holding && have_state_) ? state_position_[i] : command_position_[i];
     fw_velocity_[axis] = command_velocity_[i];
   }
+
+  // Fail closed here rather than let the firmware answer ERR 03,02: a non-finite value
+  // on the wire is either a bug in this process or a broken status frame, and the
+  // firmware's error alone does not say which axis or what the value was.
+  for (std::size_t axis = 0; axis < fw_position_.size(); ++axis)
+  {
+    if (!std::isfinite(fw_position_[axis]) || !std::isfinite(fw_velocity_[axis]))
+    {
+      throw std::runtime_error(
+              "refusing to send a non-finite command frame: axis " +
+              std::to_string(axis + 1) + " q_ref=" + std::to_string(fw_position_[axis]) +
+              " dq_ref=" + std::to_string(fw_velocity_[axis]));
+    }
+  }
+
   arm_->move_js(fw_position_, fw_velocity_);
 }
 
@@ -557,11 +776,41 @@ hardware_interface::return_type LitearmSystem::write(
   try
   {
     stream_command();
+    write_failures_ = 0;
+    if (write_recovering_)
+    {
+      write_recovering_ = false;
+      RCLCPP_INFO(logger_, "Command frames are getting through again.");
+    }
   }
   catch (const std::exception & e)
   {
-    RCLCPP_ERROR(logger_, "Failed to write the command frame: %s", e.what());
-    return hardware_interface::return_type::ERROR;
+    // A refused frame does not feed the watchdog, so the arm falls back to its hold for that
+    // window -- but a refusal is not a reason to stop the controllers. The reference daemon
+    // counts these and keeps streaming, and the next tick usually gets through. Only a run of
+    // failures means the link or the firmware is really gone.
+    ++write_failures_;
+    if (!write_recovering_)
+    {
+      write_recovering_ = true;
+      RCLCPP_WARN(
+        logger_, "Command frame refused (%s). Retrying every tick; the firmware holds until "
+        "one gets through.", e.what());
+    }
+    else if (write_failures_ % 100 == 0)
+    {
+      RCLCPP_WARN(
+        logger_, "%d command frames in a row have been refused (%s).", write_failures_,
+        e.what());
+    }
+    if (write_failures_ >= kWriteFailureLimit)
+    {
+      RCLCPP_ERROR(
+        logger_, "%d command frames in a row were refused (%s); stopping the controllers "
+        "rather than let them plan against an arm that is not following.",
+        write_failures_, e.what());
+      return hardware_interface::return_type::ERROR;
+    }
   }
   return hardware_interface::return_type::OK;
 }

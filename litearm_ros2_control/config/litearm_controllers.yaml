@@ -1,0 +1,89 @@
+# Controller configuration for the direct-USB litearm stack.
+#
+# Loaded by launch/litearm_control.launch.py as the controller_manager parameter
+# file, and passed to the spawner as --param-file when the controllers have to be
+# started separately (spawner reads a controller's type only from that
+# controller's own section below, never from the controller_manager section).
+#
+# ⚠ Parameter nesting matters: a controller's parameters must go in their own
+#   top-level section keyed by the controller name. Nested under controller_manager
+#   they are read only for the type, and the controller then fails to configure
+#   with "'joints' parameter was empty".
+controller_manager:
+  ros__parameters:
+    # The firmware trips its command watchdog after 100 ms without a command, so
+    # the update rate must stay at or above 100 Hz. Higher only repeats samples:
+    # the firmware reports status at 100 Hz, so 100 Hz is the natural match.
+    update_rate: 100  # Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+# ── Joint trajectory controller (the main path) ──────────────────────────────
+#
+# Humble's JTC accepts only these command_interfaces combinations:
+#   [position]                            pure position
+#   [position, velocity]                  position + velocity feed-forward  <- here
+#   [position, velocity, acceleration]    plus acceleration feed-forward
+#   [effort]                              torque only (must be alone)
+#
+# [position, velocity] is what the component consumes: write() sends both fields
+# as the firmware's MOVE_JS (q_ref, dq_ref), and the firmware runs
+#
+#   tau = kp·(q_ref − q) + kd·(dq_ref − dq) + G(q) + friction + integral + kd_extra
+#
+# with kp/kd from its own parameter table.
+#
+# ⚠ velocity is the slew-rate limit of the position reference, not just a
+#   feed-forward term: the firmware moves q_ref toward the commanded target by at
+#   most |dq_ref|·dt per cycle. Sending position without velocity therefore
+#   freezes the reference instead of servo-ing to it, which is why the JTC must
+#   claim both interfaces.
+#
+# ⚠ Do not add `acceleration`: MOVE_JS has no acceleration source (the firmware
+#   comment is "no acceleration source (trapezoidal limiting, not S-curve): do not
+#   guess M·ddq"), so it would never reach anything.
+#
+# ⚠ Do not add `effort`: MOVE_JS deliberately carries no tau_ff. The firmware's
+#   builtin_mode requires `MOVE_JS && !s_js_user_ff`; a tau field in the payload,
+#   even all zeros, switches off every built-in feed-forward term.
+joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - joint1
+      - joint2
+      - joint3
+      - joint4
+      - joint5
+      - joint6
+      - joint7
+    command_interfaces: [position, velocity]
+    state_interfaces: [position, velocity]
+
+    # Tracking tolerances match the firmware's own following_error criterion
+    # ([0.35, 0.35, 0.30, 0.30, 0.25, 0.25, 0.25] rad), which the firmware's
+    # safety_check uses to fault and disable an axis.
+    #
+    # ⚠ Do not tighten these casually: when |reference − measured| exceeds the
+    #   trajectory tolerance the JTC aborts the whole trajectory ("State
+    #   tolerances failed", error_code=-4) rather than warning. Tighter than the
+    #   firmware is means the controller gives up before the hardware does.
+    #   The goal tolerance is 0.02 against a firmware criterion of 0.015, which
+    #   leaves room for steady-state droop when the model or the payload is off.
+    constraints:
+      stopped_velocity_tolerance: 0.03   # = the firmware's stopped_velocity criterion
+      goal_time: 3.0                     # = the firmware's goal window
+      joint1: {trajectory: 0.35, goal: 0.02}
+      joint2: {trajectory: 0.35, goal: 0.02}
+      joint3: {trajectory: 0.30, goal: 0.02}
+      joint4: {trajectory: 0.30, goal: 0.02}
+      joint5: {trajectory: 0.25, goal: 0.02}
+      joint6: {trajectory: 0.25, goal: 0.02}
+      joint7: {trajectory: 0.25, goal: 0.02}
+
+    allow_partial_joints_goal: false
+    open_loop_control: false
+    allow_integration_in_goal_trajectories: true

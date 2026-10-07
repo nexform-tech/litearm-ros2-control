@@ -38,7 +38,11 @@ set(LITEARM_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../litearm-cpp"
 
 find_package(litearm CONFIG QUIET)
 
-if(litearm_FOUND)
+# ⚠ The robot description package is also called `litearm`, so find_package can resolve to
+# its CMake config instead of the SDK's -- they share a name, and the description package
+# exports no target at all. The target, not litearm_FOUND, is therefore the test for "the
+# SDK is installed"; anything else falls through to the sibling source tree below.
+if(litearm_FOUND AND TARGET litearm::litearm)
   # A ros2_control plugin is a shared object, so the SDK it embeds must be position
   # independent. A static litearm is fine only if it was built with PIC.
   get_target_property(_litearm_type litearm::litearm TYPE)
@@ -100,6 +104,14 @@ install(TARGETS litearm_ros2_control
   RUNTIME DESTINATION bin
 )
 install(DIRECTORY include/ DESTINATION include)
+
+# The deployment files: the URDF entry that composes the description with this
+# component's <ros2_control> block, the controller configuration, and the launch
+# that brings the stack up. A deployment (this repository's MoveIt config, or any
+# other) includes the URDF entry rather than writing its own <ros2_control> block.
+install(DIRECTORY urdf config launch
+  DESTINATION share/${PROJECT_NAME}
+)
 
 ament_export_include_directories(include)
 ament_export_targets(export_${PROJECT_NAME})

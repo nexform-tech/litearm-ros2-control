@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!--
+  litearm.urdf.xacro — the full robot description for the direct-USB stack.
+
+  The kinematics live in the description package (`litearm`); this file includes
+  it and appends the <ros2_control> declaration. Change the robot only in the
+  description package.
+
+  Deployments include this file, not the two it pulls in:
+      <xacro:include filename="$(find litearm_ros2_control)/urdf/litearm.urdf.xacro"/>
+
+  Its xacro arguments are the ones declared in litearm.ros2_control.xacro
+  (`litearm_port`, `litearm_auto_enable`, ...); xacro arguments are global, so a
+  launch file can set them on either file and both see them.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="litearm">
+  <xacro:include filename="$(find litearm)/urdf/litearm.urdf"/>
+  <xacro:include filename="$(find litearm_ros2_control)/urdf/litearm.ros2_control.xacro"/>
+</robot>
