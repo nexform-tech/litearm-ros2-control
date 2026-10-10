@@ -8,18 +8,17 @@ SDK。没有辅助进程，也没有共享内存：`read()` 取 SDK 缓存好的
 `MOVE_JS` 伺服把指令参考发回去。轨迹规划、正逆运动学与动力学都留在固件里 —— 上位机只发关节参考、
 读状态。
 
+本仓库只有一个包 `litearm_ros2_control`。独立的维护驱动及其消息包在
+[litearm-ros2](https://github.com/nexform-tech/litearm-ros2)。
+
 ## 包组成
 
 | 包 | 是什么 |
 | --- | --- |
 | `litearm_ros2_control` | ros2_control 的 `SystemInterface` 插件：控制通路，由 `joint_trajectory_controller` 或 MoveIt 2 驱动。 |
-| `litearm_driver` | 独立生命周期节点，自己持有同一条 USB 链路，把 SDK 的管理类指令以服务形式暴露出来。只能**替代**控制栈运行，不能与之并存。 |
-| `litearm_msgs` | `litearm_driver` 使用的消息与服务定义。 |
 
-控制栈与驱动节点互斥：两者都会打开同一个串口，SDK 会对其加独占锁。启动命令见
-[docs/quickstart.zh-CN.md](docs/quickstart.zh-CN.md)（英文原文为 [quickstart.md](docs/quickstart.md)）；
-驱动的完整指令集见 [docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)
-（英文原文为 [command-set.md](docs/command-set.md)）。
+控制栈与维护驱动互斥：两者都会打开同一个串口，SDK 会对其加独占锁。绝不能同时运行。启动命令见
+[docs/quickstart.zh-CN.md](docs/quickstart.zh-CN.md)（英文原文为 [docs/quickstart.md](docs/quickstart.md)）。
 
 ## 特点
 
@@ -175,22 +174,7 @@ arm_controller:
 
 还要清楚在进程内直接驱动机械臂的取舍：`write()` 会进到 SDK，写一帧并等固件 ACK，上限是 SDK 自己的
 1.2 s 超时。链路健康时这是亚毫秒级，但 USB 链路卡住时可能把控制循环堵到那个上限。若需要与 USB 隔离
-的硬实时循环，请改用共享内存 + 守护进程的方案驱动机械臂。
-
-## 维护驱动
-
-`litearm_driver` 是接触机械臂的第二条通路。它自己打开 USB 链路，把 SDK 的管理类调用暴露为服务：
-使能、park、清故障、进入零重力、调全局速度倍率与前馈、读写关节参数表、读取授权记录（授权状态在状态消息里）、进入 DFU。
-
-```bash
-ros2 launch litearm_driver litearm_driver.launch.py
-ros2 service call /litearm/get_status litearm_msgs/srv/GetStatus "{timeout: 0.5}"
-ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: true}"
-```
-
-**不要让驱动节点与控制栈同时运行。** 驱动面向维护与开机验收，不做运动控制：轨迹、伺服、遥操作
-仍然留在控制通路里。每个服务与字段见 [litearm_driver/README.zh-CN.md](litearm_driver/README.zh-CN.md)，每条拒绝规则及其原因见
-[docs/command-set.zh-CN.md](docs/command-set.zh-CN.md)。
+的硬实时循环，进程内驱动这套设计并不合适 —— 本插件不提供硬实时保证。
 
 ## 测试
 
@@ -201,6 +185,13 @@ cd ~/litearm_ws
 colcon test --packages-select litearm_ros2_control --event-handlers console_direct+
 colcon test-result --verbose
 ```
+
+## 相关仓库
+
+| 仓库 | 内容 |
+| --- | --- |
+| [litearm-ros2](https://github.com/nexform-tech/litearm-ros2) | 独立的维护驱动及其使用的消息包。 |
+| [litearm-cpp](https://github.com/nexform-tech/litearm-cpp) | 本插件构建所依赖的 C++ SDK。 |
 
 ## 许可证
 
