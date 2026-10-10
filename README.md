@@ -10,19 +10,18 @@ shared memory: `read()` consumes the SDK's cached 100 Hz status frame, and `writ
 command reference back with the firmware's `MOVE_JS` servo. Trajectory planning, kinematics and
 dynamics all stay in the firmware — the host sends joint references and reads state back.
 
-## Packages
+This repository holds one package, `litearm_ros2_control`. The standalone maintenance driver and
+its message package live in [litearm-ros2](https://github.com/nexform-tech/litearm-ros2).
+
+## Package
 
 | Package | What it is |
 | --- | --- |
 | `litearm_ros2_control` | The ros2_control `SystemInterface` plugin: the control path, driven by `joint_trajectory_controller` or MoveIt 2. |
-| `litearm_driver` | A standalone lifecycle node that owns the same USB link and exposes the SDK's administrative command set as services. Run it instead of the control stack, never next to it. |
-| `litearm_msgs` | The message and service definitions used by `litearm_driver`. |
 
-The control stack and the driver are mutually exclusive: both open the same serial port and
-the SDK takes an exclusive lock on it. Start with [docs/quickstart.md](docs/quickstart.md) for
-the commands that bring either one up; the driver's full command set is in
-[docs/command-set.md](docs/command-set.md), with a Chinese reference in
-[docs/command-set.zh-CN.md](docs/command-set.zh-CN.md).
+The control stack and the maintenance driver are mutually exclusive: both open the same serial port
+and the SDK takes an exclusive lock on it. Never run them together. Start with
+[docs/quickstart.md](docs/quickstart.md) for the commands that bring the stack up.
 
 ## Highlights
 
@@ -185,27 +184,8 @@ its fail-soft hold and the arm sags toward whatever the load pulls it.
 Be aware of the tradeoff in driving the arm in-process: `write()` calls into the SDK, which writes a
 frame and waits for the firmware ACK, bounded by the SDK's own 1.2 s timeout. On a healthy link that
 is sub-millisecond, but a stalled USB link can stall the controller loop for up to that timeout. If
-you need a hard real-time loop isolated from USB, run the arm through a shared-memory daemon variant
-instead.
-
-## Maintenance driver
-
-`litearm_driver` is the second way to reach the arm. It opens the USB link itself and
-exposes the SDK's administrative calls as services: enable, park, clear faults, enter zero
-gravity, tune the speed governor and the feedforward terms, read and write the joint
-parameter table, read the licence record (it is reported in the status message), and
-enter DFU.
-
-```bash
-ros2 launch litearm_driver litearm_driver.launch.py
-ros2 service call /litearm/get_status litearm_msgs/srv/GetStatus "{timeout: 0.5}"
-ros2 service call /litearm/zero_g std_srvs/srv/SetBool "{data: true}"
-```
-
-**Do not run the driver and the ros2_control stack at the same time.** The driver is for
-maintenance and bring-up, not for motion control: trajectories, servo and teleoperation
-stay in the control path. See [litearm_driver/README.md](litearm_driver/README.md) for every service and field,
-and [docs/command-set.md](docs/command-set.md) for the refusals and the reason behind them.
+you need a hard real-time loop isolated from USB, this in-process design is the wrong tradeoff —
+the plugin does not provide one.
 
 ## Tests
 
@@ -217,6 +197,13 @@ cd ~/litearm_ws
 colcon test --packages-select litearm_ros2_control --event-handlers console_direct+
 colcon test-result --verbose
 ```
+
+## Related repositories
+
+| Repository | What it holds |
+| --- | --- |
+| [litearm-ros2](https://github.com/nexform-tech/litearm-ros2) | The standalone maintenance driver and the message package it speaks. |
+| [litearm-cpp](https://github.com/nexform-tech/litearm-cpp) | The C++ SDK this plugin builds against. |
 
 ## License
 

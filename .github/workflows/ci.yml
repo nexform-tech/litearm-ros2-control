@@ -1,5 +1,4 @@
-# Test gate for this repository: the litearm ros2_control plugin, the standalone
-# maintenance driver and their message package.
+# Test gate for this repository: the litearm ros2_control plugin.
 #
 # Tests live in their own workflow: they run on pull requests, while the release
 # workflow runs on pushes to the default branch. Mixing the two means a broken
@@ -59,12 +58,7 @@ jobs:
             ros-humble-pluginlib \
             ros-humble-rclcpp \
             ros-humble-rclcpp-lifecycle \
-            ros-humble-ament-cmake-gtest \
-            ros-humble-rosidl-default-generators \
-            ros-humble-rosidl-default-runtime \
-            ros-humble-std-srvs \
-            ros-humble-sensor-msgs \
-            ros-humble-diagnostic-msgs
+            ros-humble-ament-cmake-gtest
 
       - name: Build
         shell: bash
@@ -99,9 +93,7 @@ jobs:
         run: |
           npx --yes markdownlint-cli2@0.23.3 \
             "README.md" "README.zh-CN.md" \
-            "docs/*.md" \
-            "litearm_driver/README.md" "litearm_driver/README.zh-CN.md" \
-            "litearm_msgs/README.md"
+            "docs/*.md"
 
       - name: Validate repository standards
         run: |
@@ -110,11 +102,11 @@ jobs:
           test -s README.zh-CN.md
           test -s AGENTS.md
           test -s LICENSE
-          test -s docs/command-set.md
-          test -s docs/command-set.zh-CN.md
+          test -s docs/quickstart.md
+          test -s docs/quickstart.zh-CN.md
           python3 -c "import json; json.load(open('.releaserc.json'))"
           python3 -c "import json; json.load(open('.markdownlint.json'))"
-          for manifest in litearm_ros2_control/package.xml litearm_driver/package.xml litearm_msgs/package.xml; do
+          for manifest in litearm_ros2_control/package.xml; do
             python3 -c "import xml.dom.minidom, sys; xml.dom.minidom.parse(sys.argv[1])" "$manifest"
           done
           echo "repository standards OK"
