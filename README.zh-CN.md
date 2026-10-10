@@ -8,7 +8,7 @@ SDK。没有辅助进程，也没有共享内存：`read()` 取 SDK 缓存好的
 `MOVE_JS` 伺服把指令参考发回去。轨迹规划、正逆运动学与动力学都留在固件里 —— 上位机只发关节参考、
 读状态。
 
-本仓库只有一个包 `litearm_ros2_control`。独立的维护驱动及其消息包在
+本仓库有两个包：插件本身，以及它启动时用的 URDF 描述。独立的维护驱动及其消息包在
 [litearm-ros2](https://github.com/nexform-tech/litearm-ros2)。
 
 ## 包组成
@@ -16,9 +16,14 @@ SDK。没有辅助进程，也没有共享内存：`read()` 取 SDK 缓存好的
 | 包 | 是什么 |
 | --- | --- |
 | `litearm_ros2_control` | ros2_control 的 `SystemInterface` 插件：控制通路，由 `joint_trajectory_controller` 或 MoveIt 2 驱动。 |
+| `litearm` | 机械臂的 URDF 描述 —— 模型、网格与一条显示用 launch，从 litearm-stm32 固件仓移植而来。 |
 
 控制栈与维护驱动互斥：两者都会打开同一个串口，SDK 会对其加独占锁。绝不能同时运行。启动命令见
 [docs/quickstart.zh-CN.md](docs/quickstart.zh-CN.md)（英文原文为 [docs/quickstart.md](docs/quickstart.md)）。
+
+`litearm` 是副本，不是源头。在固件仓里同一份 URDF 是唯一真源，固件的运动学表由它生成；要改模型请改
+上游再同步到 [litearm/](litearm/)，不要改这里。它放在本仓的原因是：`litearm_ros2_control` 的 URDF
+入口 include 了 `$(find litearm)/urdf/litearm.urdf`，缺了它控制栈根本拼不出 `robot_description`。
 
 ## 特点
 
@@ -58,6 +63,7 @@ SDK。没有辅助进程，也没有共享内存：`read()` 取 SDK 缓存好的
 | SDK | `litearm-cpp`，已安装或作为同级源码树 |
 | 固件 | `Litearm1.5.0` 或更新 —— 版本串形如 `Litearm<主.次.修>-{7J\|1J}` |
 | 连接 | USB CDC 串口，`VID:PID 1d50:606f` |
+| 显示（可选） | `rviz2` 与 `joint_state_publisher_gui`，只在跑 `ros2 launch litearm display.launch.py` 时需要 |
 
 低于 1.5.0 的固件在连接阶段会被拒绝：插件依赖 1.5.0 才引入的 6+21N 状态帧布局、`joint_fault`
 字段和使能位。
@@ -77,7 +83,12 @@ sudo usermod -aG dialout $USER      # 重新登录后生效
 ~/litearm_ws/src/
 ├── litearm-cpp/              # C++ SDK
 └── litearm-ros2-control/     # 本仓库
+    ├── litearm/              # 随仓的 URDF 描述
+    └── litearm_ros2_control/ # 插件
 ```
+
+不要再把 litearm-stm32 固件仓签出到同一个工作区：它的 `litearm/` 包同名，colcon 会因包名重复而拒绝
+构建整个工作区。
 
 ```bash
 source /opt/ros/humble/setup.bash

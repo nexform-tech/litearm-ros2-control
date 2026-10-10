@@ -10,18 +10,26 @@ shared memory: `read()` consumes the SDK's cached 100 Hz status frame, and `writ
 command reference back with the firmware's `MOVE_JS` servo. Trajectory planning, kinematics and
 dynamics all stay in the firmware — the host sends joint references and reads state back.
 
-This repository holds one package, `litearm_ros2_control`. The standalone maintenance driver and
-its message package live in [litearm-ros2](https://github.com/nexform-tech/litearm-ros2).
+This repository holds two packages: the plugin, and the URDF description it launches with. The
+standalone maintenance driver and its message package live in
+[litearm-ros2](https://github.com/nexform-tech/litearm-ros2).
 
-## Package
+## Packages
 
 | Package | What it is |
 | --- | --- |
 | `litearm_ros2_control` | The ros2_control `SystemInterface` plugin: the control path, driven by `joint_trajectory_controller` or MoveIt 2. |
+| `litearm` | The URDF description of the arm — the model, its meshes and a display launch — vendored from the litearm-stm32 firmware repository. |
 
 The control stack and the maintenance driver are mutually exclusive: both open the same serial port
 and the SDK takes an exclusive lock on it. Never run them together. Start with
 [docs/quickstart.md](docs/quickstart.md) for the commands that bring the stack up.
+
+`litearm` is a copy, not a source. In the firmware repository the same URDF is the single source of
+truth, and the firmware's kinematics table is generated from it; change the model there and re-sync
+[litearm/](litearm/), never here. It lives in this repository because `litearm_ros2_control`'s URDF
+entry includes `$(find litearm)/urdf/litearm.urdf`, so without it the control launch cannot build a
+`robot_description` at all.
 
 ## Highlights
 
@@ -64,6 +72,7 @@ Opt-in diagnostic state interfaces, exported on every joint when
 | SDK | `litearm-cpp`, either installed or as a sibling source tree |
 | Firmware | `Litearm1.5.0` or newer — reported as `Litearm<major.minor.patch>-{7J\|1J}` |
 | Connection | USB CDC serial, `VID:PID 1d50:606f` |
+| Display, optional | `rviz2` and `joint_state_publisher_gui`, needed only for `ros2 launch litearm display.launch.py` |
 
 Firmware older than 1.5.0 is rejected at connect time: the plugin depends on the 6+21N status frame
 layout, the `joint_fault` field, and the enabled bit that 1.5.0 introduced.
@@ -83,7 +92,13 @@ package is already on `CMAKE_PREFIX_PATH`:
 ~/litearm_ws/src/
 ├── litearm-cpp/              # the C++ SDK
 └── litearm-ros2-control/     # this repository
+    ├── litearm/              # the URDF description, vendored
+    └── litearm_ros2_control/ # the plugin
 ```
+
+Do not also check out the litearm-stm32 firmware repository into the same workspace: its `litearm/`
+package carries the same name, and colcon refuses to build a workspace with a duplicated package
+name.
 
 ```bash
 source /opt/ros/humble/setup.bash
