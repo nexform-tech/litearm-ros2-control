@@ -21,14 +21,18 @@ source ~/litearm_ws/install/setup.bash
 
 lsusb | grep 1d50          # expect 1d50:606f
 ls /dev/ttyACM*            # expect /dev/ttyACM0
+ros2 pkg prefix litearm    # expect <workspace>/install/litearm
 ```
+
+That last one is the URDF description. It ships inside litearm-ros2-control, so nothing extra to
+install — but if it is missing, the launch below fails while building the `robot_description`.
 
 ## 1. The control stack
 
 **Only the control stack** — `robot_state_publisher`, `controller_manager` and the two controllers.
 The manager has to come from a stack that owns the description and the hardware component; this
 launch starts the manager itself and therefore needs the URDF entry this package ships
-(`urdf/litearm.urdf.xacro`).
+(`urdf/litearm.urdf.xacro`), which pulls in the `litearm` description from the same repository.
 
 ```bash
 ros2 launch litearm_ros2_control litearm_control.launch.py

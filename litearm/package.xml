@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>litearm</name>
+  <version>1.0.0</version>
+  <description>
+    URDF description of the 7-DOF litearm: the model, its meshes, and a display
+    launch. Vendored from the litearm-stm32 firmware repository, where
+    litearm/urdf/litearm.urdf is the single source of truth for the geometry and
+    the joint limits — the same numbers the firmware's kinematics table is
+    generated from. Do not edit the model here; change it upstream.
+
+    The link and joint names are the contract the rest of the stack reads:
+    links base_link, joint1..joint7 and ee_link, joints joint1..joint7.
+  </description>
+  <maintainer email="wurihao@nexform.tech">thetooler</maintainer>
+  <license>BSD</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>joint_state_publisher_gui</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

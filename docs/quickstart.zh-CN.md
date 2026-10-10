@@ -18,13 +18,17 @@ source ~/litearm_ws/install/setup.bash
 
 lsusb | grep 1d50          # 应看到 1d50:606f
 ls /dev/ttyACM*            # 应看到 /dev/ttyACM0
+ros2 pkg prefix litearm    # 应看到 <工作区>/install/litearm
 ```
+
+最后一条是 URDF 描述包。它随 litearm-ros2-control 一起发布，不需要额外安装；缺了它下面的 launch
+会在拼 `robot_description` 时报错。
 
 ## 1. ros2_control 栈
 
 **只起控制栈**——`robot_state_publisher`、`controller_manager` 与两个控制器。manager 必须来自
 一个拥有描述文件与硬件组件的栈；这条 launch 自己拉起 manager，因此需要本包随附的 URDF 入口
-（`urdf/litearm.urdf.xacro`）。
+（`urdf/litearm.urdf.xacro`），而它会拉进同一仓库里的 `litearm` 描述包。
 
 ```bash
 ros2 launch litearm_ros2_control litearm_control.launch.py

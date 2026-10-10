@@ -93,7 +93,8 @@ jobs:
         run: |
           npx --yes markdownlint-cli2@0.23.3 \
             "README.md" "README.zh-CN.md" \
-            "docs/*.md"
+            "docs/*.md" \
+            "litearm/README.md"
 
       - name: Validate repository standards
         run: |
@@ -104,9 +105,14 @@ jobs:
           test -s LICENSE
           test -s docs/quickstart.md
           test -s docs/quickstart.zh-CN.md
+          # The vendored description package. Its URDF path and package name are
+          # the contract litearm_ros2_control's xacro resolves at launch time.
+          test -s litearm/README.md
+          test -s litearm/urdf/litearm.urdf
+          test -s litearm/meshes/joint1.STL
           python3 -c "import json; json.load(open('.releaserc.json'))"
           python3 -c "import json; json.load(open('.markdownlint.json'))"
-          for manifest in litearm_ros2_control/package.xml; do
+          for manifest in litearm_ros2_control/package.xml litearm/package.xml; do
             python3 -c "import xml.dom.minidom, sys; xml.dom.minidom.parse(sys.argv[1])" "$manifest"
           done
           echo "repository standards OK"
