@@ -93,8 +93,7 @@ jobs:
         run: |
           npx --yes markdownlint-cli2@0.23.3 \
             "README.md" "README.zh-CN.md" \
-            "docs/*.md" \
-            "litearm/README.md"
+            "docs/*.md"
 
       - name: Validate repository standards
         run: |
@@ -105,14 +104,14 @@ jobs:
           test -s LICENSE
           test -s docs/quickstart.md
           test -s docs/quickstart.zh-CN.md
-          # The vendored description package. Its URDF path and package name are
-          # the contract litearm_ros2_control's xacro resolves at launch time.
-          test -s litearm/README.md
-          test -s litearm/urdf/litearm.urdf
-          test -s litearm/meshes/joint1.STL
+          # The URDF description lives in its own repository (litearm-description) and is
+          # resolved at launch time. Keep both halves of that contract visible, so a silent
+          # rename on either side fails here instead of at `ros2 launch`.
+          grep -q 'find litearm_description' litearm_ros2_control/urdf/litearm.urdf.xacro
+          grep -q '<exec_depend>litearm_description</exec_depend>' litearm_ros2_control/package.xml
           python3 -c "import json; json.load(open('.releaserc.json'))"
           python3 -c "import json; json.load(open('.markdownlint.json'))"
-          for manifest in litearm_ros2_control/package.xml litearm/package.xml; do
+          for manifest in litearm_ros2_control/package.xml; do
             python3 -c "import xml.dom.minidom, sys; xml.dom.minidom.parse(sys.argv[1])" "$manifest"
           done
           echo "repository standards OK"

@@ -19,17 +19,17 @@ standalone maintenance driver and its message package live in
 | Package | What it is |
 | --- | --- |
 | `litearm_ros2_control` | The ros2_control `SystemInterface` plugin: the control path, driven by `joint_trajectory_controller` or MoveIt 2. |
-| `litearm` | The URDF description of the arm — the model, its meshes and a display launch — vendored from the litearm-stm32 firmware repository. |
 
 The control stack and the maintenance driver are mutually exclusive: both open the same serial port
 and the SDK takes an exclusive lock on it. Never run them together. Start with
 [docs/quickstart.md](docs/quickstart.md) for the commands that bring the stack up.
 
-`litearm` is a copy, not a source. In the firmware repository the same URDF is the single source of
-truth, and the firmware's kinematics table is generated from it; change the model there and re-sync
-[litearm/](litearm/), never here. It lives in this repository because `litearm_ros2_control`'s URDF
-entry includes `$(find litearm)/urdf/litearm.urdf`, so without it the control launch cannot build a
-`robot_description` at all.
+The arm's URDF description lives in its own repository,
+[`nexform-tech/litearm-description`](https://github.com/nexform-tech/litearm-description)
+(package `litearm_description`), and `litearm_ros2_control`'s URDF entry includes
+`$(find litearm_description)/urdf/litearm_description.urdf`. That package therefore has to be in
+the workspace (or installed) at launch time; this repository no longer vendors a copy. The model is
+maintained there, not here.
 
 ## Highlights
 
@@ -91,14 +91,14 @@ package is already on `CMAKE_PREFIX_PATH`:
 ```text
 ~/litearm_ws/src/
 ├── litearm-cpp/              # the C++ SDK
+├── litearm-description/      # the URDF description (package litearm_description)
 └── litearm-ros2-control/     # this repository
-    ├── litearm/              # the URDF description, vendored
     └── litearm_ros2_control/ # the plugin
 ```
 
-Do not also check out the litearm-stm32 firmware repository into the same workspace: its `litearm/`
-package carries the same name, and colcon refuses to build a workspace with a duplicated package
-name.
+Keep a single arm description in the workspace: the litearm-stm32 firmware repository ships its own
+`litearm` URDF package, and two arm descriptions in one workspace make it ambiguous which one a
+launch resolves.
 
 ```bash
 source /opt/ros/humble/setup.bash

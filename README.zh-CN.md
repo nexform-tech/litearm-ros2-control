@@ -21,9 +21,11 @@ SDK。没有辅助进程，也没有共享内存：`read()` 取 SDK 缓存好的
 控制栈与维护驱动互斥：两者都会打开同一个串口，SDK 会对其加独占锁。绝不能同时运行。启动命令见
 [docs/quickstart.zh-CN.md](docs/quickstart.zh-CN.md)（英文原文为 [docs/quickstart.md](docs/quickstart.md)）。
 
-`litearm` 是副本，不是源头。在固件仓里同一份 URDF 是唯一真源，固件的运动学表由它生成；要改模型请改
-上游再同步到 [litearm/](litearm/)，不要改这里。它放在本仓的原因是：`litearm_ros2_control` 的 URDF
-入口 include 了 `$(find litearm)/urdf/litearm.urdf`，缺了它控制栈根本拼不出 `robot_description`。
+机械臂的 URDF 描述在自己的仓库里：
+[`nexform-tech/litearm-description`](https://github.com/nexform-tech/litearm-description)（包名
+`litearm_description`）。`litearm_ros2_control` 的 URDF 入口 include 的是
+`$(find litearm_description)/urdf/litearm_description.urdf`，所以启动时那个包必须在工作区里（或已安装）；
+本仓不再随仓携带副本。模型在那边的仓库维护，不在这里改。
 
 ## 特点
 
@@ -82,13 +84,13 @@ sudo usermod -aG dialout $USER      # 重新登录后生效
 ```text
 ~/litearm_ws/src/
 ├── litearm-cpp/              # C++ SDK
+├── litearm-description/      # URDF 描述（包名 litearm_description）
 └── litearm-ros2-control/     # 本仓库
-    ├── litearm/              # 随仓的 URDF 描述
     └── litearm_ros2_control/ # 插件
 ```
 
-不要再把 litearm-stm32 固件仓签出到同一个工作区：它的 `litearm/` 包同名，colcon 会因包名重复而拒绝
-构建整个工作区。
+同一个工作区里只保留一份机械臂描述：litearm-stm32 固件仓自带一个同名功能的 `litearm` URDF 包，
+两份描述同时在会让 launch 解析到哪一份变得不确定。
 
 ```bash
 source /opt/ros/humble/setup.bash
