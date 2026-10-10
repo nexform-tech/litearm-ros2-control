@@ -18,17 +18,17 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
 
-  <!-- Two different things are named `litearm`, and this one dependency entry covers
-       both; neither is a rosdep key, so `rosdep install` cannot resolve it alone.
-
-       1. The litearm C++ SDK, a plain CMake package. CMakeLists prefers an installed
-          litearm (find_package) and otherwise builds the litearm-cpp source tree beside
-          this repository into this package, so a plain `colcon build` needs no manual
-          install step.
-       2. The URDF description package, vendored at ../litearm. The URDF entry in
-          urdf/litearm.urdf.xacro includes $(find litearm)/urdf/litearm.urdf, so the
-          launch cannot build a robot_description without it. -->
+  <!-- The litearm C++ SDK: a plain CMake package, not a rosdep key, so `rosdep install`
+       cannot resolve it alone. CMakeLists prefers an installed litearm (find_package) and
+       otherwise builds the litearm-cpp source tree beside this repository into this
+       package, so a plain `colcon build` needs no manual install step. -->
   <depend>litearm</depend>
+
+  <!-- The URDF description moved to its own repository (nexform-tech/litearm-description):
+       urdf/litearm.urdf.xacro includes $(find litearm_description)/urdf/litearm_description.urdf,
+       so that package has to be in the workspace (or installed) at launch time. It is not a
+       rosdep key either. -->
+  <exec_depend>litearm_description</exec_depend>
 
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>
