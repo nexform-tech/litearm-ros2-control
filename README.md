@@ -122,7 +122,7 @@ makes the build fail with an explanatory error rather than a link error — rein
 
 ## Usage
 
-Declare the component in the URDF's `<ros2_control>` block. The joint names must be `joint1..jointN`,
+Declare the component in the URDF's `<ros2_control>` block. The joint names must be `Joint1..jointN`,
 one per axis, and N must equal the axis count the firmware reports — 7 for the arm, 1 for the bench.
 The name fixes the axis mapping, so the order of the `<joint>` elements does not matter.
 
@@ -137,14 +137,14 @@ The name fixes the axis mapping, so the order of the `<joint>` elements does not
     <param name="disable_on_shutdown">false</param>
     <param name="enable_attempts">12</param>
   </hardware>
-  <joint name="joint1">
+  <joint name="Joint1">
     <command_interface name="position"/>
     <command_interface name="velocity"/>
     <state_interface name="position"/>
     <state_interface name="velocity"/>
     <state_interface name="effort"/>
   </joint>
-  <!-- joint2 .. joint7: identical blocks -->
+  <!-- Joint2 .. Joint7: identical blocks -->
 </ros2_control>
 ```
 
@@ -174,13 +174,13 @@ controller_manager:
 arm_controller:
   ros__parameters:
     joints:
-      - joint1
-      - joint2
-      - joint3
-      - joint4
-      - joint5
-      - joint6
-      - joint7
+      - Joint1
+      - Joint2
+      - Joint3
+      - Joint4
+      - Joint5
+      - Joint6
+      - Joint7
     command_interfaces:
       - position
     state_interfaces:

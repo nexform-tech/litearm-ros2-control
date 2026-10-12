@@ -81,7 +81,7 @@ fuser -v /dev/ttyACM0 2>/dev/null      # 必要时看谁还占着串口
 
 栈起来之后，机械臂就是一个普通的 ros2_control 系统：给 `joint_trajectory_controller` 发轨迹，
 或者在 MoveIt 2 里规划、由 `move_group` 执行。launch 起来的两个控制器是 `joint_state_broadcaster`
-与 `arm_controller`（一个 `joint_trajectory_controller`）；关节名是 `joint1`..`joint7`。
+与 `arm_controller`（一个 `joint_trajectory_controller`）；关节名是 `Joint1`..`Joint7`。
 
 ## 4. 起不来时
 

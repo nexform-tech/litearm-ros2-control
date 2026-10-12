@@ -116,7 +116,7 @@ hardware_interface::HardwareInfo make_info(
 
 std::vector<std::string> seven_joints()
 {
-  return {"joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"};
+  return {"Joint1", "Joint2", "Joint3", "Joint4", "Joint5", "Joint6", "Joint7"};
 }
 
 /// Payload of the last CMD_MOVE_JS frame the (fake) firmware received, as f32 values.
@@ -194,7 +194,7 @@ TEST(LitearmSystemInit, RejectsDuplicateAxis)
 {
   LitearmSystem sys;
   std::vector<std::string> names = seven_joints();
-  names[5] = "joint7";  // joint7 declared twice, joint6 missing
+  names[5] = "Joint7";  // Joint7 declared twice, Joint6 missing
   EXPECT_EQ(sys.on_init(make_info(names)), CallbackReturn::ERROR);
 }
 
@@ -248,7 +248,7 @@ TEST(LitearmSystemLifecycle, CommandReachesAxisOrderedByNameNotByUrdfPosition)
   // A permuted declaration order. Name-based mapping must still land each command on its
   // physical axis; a naive "URDF index == axis" implementation would swap them here.
   const std::vector<std::string> permuted{
-    "joint3", "joint1", "joint7", "joint2", "joint6", "joint4", "joint5"};
+    "Joint3", "Joint1", "Joint7", "Joint2", "Joint6", "Joint4", "Joint5"};
   const auto info = make_info(permuted, {{"port", "fake"}, {"auto_enable", "false"}});
 
   ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
@@ -275,8 +275,8 @@ TEST(LitearmSystemLifecycle, CommandReachesAxisOrderedByNameNotByUrdfPosition)
 
   const auto frame = last_move_js(sys, 2u * permuted.size());
   ASSERT_EQ(frame.size(), 2u * permuted.size());
-  // axis0=joint1 was declared 2nd (101), axis1=joint2 4th (103), axis2=joint3 1st (100),
-  // axis3=joint4 6th (105), axis4=joint5 7th (106), axis5=joint6 5th (104), axis6=joint7
+  // axis0=Joint1 was declared 2nd (101), axis1=Joint2 4th (103), axis2=Joint3 1st (100),
+  // axis3=Joint4 6th (105), axis4=Joint5 7th (106), axis5=Joint6 5th (104), axis6=Joint7
   // 3rd (102).
   const std::vector<double> expected{101.0, 103.0, 100.0, 105.0, 106.0, 104.0, 102.0};
   for (std::size_t i = 0; i < expected.size(); ++i)
@@ -431,10 +431,10 @@ TEST(LitearmSystemLifecycle, ConfigureFailsWhenAxisCountDoesNotMatchUrdf)
 {
   const std::vector<double> measured{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   TestSystem sys(measured);  // fake firmware reports 7 axes
-  // URDF declares only six joints named joint1..joint6 but includes joint7 so the axis
+  // URDF declares only six joints named Joint1..Joint6 but includes Joint7 so the axis
   // numbers stay in range while the count is wrong.
   const std::vector<std::string> names{
-    "joint1", "joint2", "joint3", "joint4", "joint5", "joint6"};
+    "Joint1", "Joint2", "Joint3", "Joint4", "Joint5", "Joint6"};
   const auto info = make_info(names, {{"port", "fake"}});
 
   ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);

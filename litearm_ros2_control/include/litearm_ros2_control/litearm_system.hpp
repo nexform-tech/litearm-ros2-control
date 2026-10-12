@@ -64,7 +64,7 @@
 //   enable_attempts                enable() retries, default 12 (the SDK sleeps 300 ms
 //                                  between retries, so only retryable codes consume it).
 //
-// Joints must be named joint1..jointN and declared in the <ros2_control> block, exactly N
+// Joints must be named Joint1..jointN and declared in the <ros2_control> block, exactly N
 // of them, matching the axis count the firmware reports (7 for the arm, 1 for the bench).
 // The name fixes the axis mapping, so URDF order does not matter.
 

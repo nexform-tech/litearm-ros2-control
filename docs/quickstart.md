@@ -88,7 +88,7 @@ The two deployments cannot overlap because of the port, not because of a ROS res
 Once the stack is up, the arm is an ordinary ros2_control system: send `joint_trajectory_controller`
 trajectories, or plan in MoveIt 2 and let `move_group` execute them. The two controllers the launch
 starts are `joint_state_broadcaster` and `arm_controller` (a
-`joint_trajectory_controller`); the joints are `joint1`..`joint7`.
+`joint_trajectory_controller`); the joints are `Joint1`..`Joint7`.
 
 ## 4. When it does not come up
 

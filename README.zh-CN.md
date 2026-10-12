@@ -112,7 +112,7 @@ colcon build --cmake-args -DLITEARM_CPP_DIR=/path/to/litearm-cpp
 
 ## 使用
 
-在 URDF 的 `<ros2_control>` 块里声明该组件。关节名必须是 `joint1..jointN`，每个轴一个，且 N 必须
+在 URDF 的 `<ros2_control>` 块里声明该组件。关节名必须是 `Joint1..jointN`，每个轴一个，且 N 必须
 等于固件上报的轴数 —— 机械臂是 7，台架是 1。名字决定轴映射，所以 `<joint>` 元素的顺序无关紧要。
 
 ```xml
@@ -126,14 +126,14 @@ colcon build --cmake-args -DLITEARM_CPP_DIR=/path/to/litearm-cpp
     <param name="disable_on_shutdown">false</param>
     <param name="enable_attempts">12</param>
   </hardware>
-  <joint name="joint1">
+  <joint name="Joint1">
     <command_interface name="position"/>
     <command_interface name="velocity"/>
     <state_interface name="position"/>
     <state_interface name="velocity"/>
     <state_interface name="effort"/>
   </joint>
-  <!-- joint2 .. joint7：结构完全相同 -->
+  <!-- Joint2 .. Joint7：结构完全相同 -->
 </ros2_control>
 ```
 
@@ -163,13 +163,13 @@ controller_manager:
 arm_controller:
   ros__parameters:
     joints:
-      - joint1
-      - joint2
-      - joint3
-      - joint4
-      - joint5
-      - joint6
-      - joint7
+      - Joint1
+      - Joint2
+      - Joint3
+      - Joint4
+      - Joint5
+      - Joint6
+      - Joint7
     command_interfaces:
       - position
     state_interfaces:

@@ -53,13 +53,13 @@ controller_manager:
 joint_trajectory_controller:
   ros__parameters:
     joints:
-      - joint1
-      - joint2
-      - joint3
-      - joint4
-      - joint5
-      - joint6
-      - joint7
+      - Joint1
+      - Joint2
+      - Joint3
+      - Joint4
+      - Joint5
+      - Joint6
+      - Joint7
     command_interfaces: [position, velocity]
     state_interfaces: [position, velocity]
 
@@ -76,13 +76,13 @@ joint_trajectory_controller:
     constraints:
       stopped_velocity_tolerance: 0.03   # = the firmware's stopped_velocity criterion
       goal_time: 3.0                     # = the firmware's goal window
-      joint1: {trajectory: 0.35, goal: 0.02}
-      joint2: {trajectory: 0.35, goal: 0.02}
-      joint3: {trajectory: 0.30, goal: 0.02}
-      joint4: {trajectory: 0.30, goal: 0.02}
-      joint5: {trajectory: 0.25, goal: 0.02}
-      joint6: {trajectory: 0.25, goal: 0.02}
-      joint7: {trajectory: 0.25, goal: 0.02}
+      Joint1: {trajectory: 0.35, goal: 0.02}
+      Joint2: {trajectory: 0.35, goal: 0.02}
+      Joint3: {trajectory: 0.30, goal: 0.02}
+      Joint4: {trajectory: 0.30, goal: 0.02}
+      Joint5: {trajectory: 0.25, goal: 0.02}
+      Joint6: {trajectory: 0.25, goal: 0.02}
+      Joint7: {trajectory: 0.25, goal: 0.02}
 
     allow_partial_joints_goal: false
     open_loop_control: false

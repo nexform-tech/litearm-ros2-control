@@ -72,7 +72,7 @@ bool parse_bool(const std::string & raw, bool fallback)
 /// out of order. Returns false for any name that does not fit the pattern.
 bool joint_name_to_axis(const std::string & name, std::size_t * axis)
 {
-  constexpr const char * kPrefix = "joint";
+  constexpr const char * kPrefix = "Joint";   // matches the description package (Joint1..Joint7)
   const std::string prefix(kPrefix);
   if (name.rfind(prefix, 0) != 0) {
     return false;
@@ -120,7 +120,7 @@ hardware_interface::CallbackReturn LitearmSystem::on_init(
   {
     RCLCPP_FATAL(
       logger_, "No joints declared. The litearm hardware needs one <joint> per axis "
-      "(joint1..jointN).");
+      "(Joint1..jointN).");
     return hardware_interface::CallbackReturn::ERROR;
   }
   if (info_.joints.size() > static_cast<std::size_t>(litearm::proto::MAX_JOINTS))
@@ -142,7 +142,7 @@ hardware_interface::CallbackReturn LitearmSystem::on_init(
     {
       RCLCPP_FATAL(
         logger_, "Joint '%s' does not map to a litearm axis. Names must be "
-        "joint1..joint%zu, one per axis.", info_.joints[i].name.c_str(), num_joints());
+        "Joint1..joint%zu, one per axis.", info_.joints[i].name.c_str(), num_joints());
       return hardware_interface::CallbackReturn::ERROR;
     }
     if (seen[axis])
@@ -235,7 +235,7 @@ hardware_interface::CallbackReturn LitearmSystem::on_configure(
   {
     RCLCPP_FATAL(
       logger_, "URDF declares %zu joints but the firmware reports %d axes (%s). "
-      "Declare exactly one <joint> per axis, named joint1..joint%d.",
+      "Declare exactly one <joint> per axis, named Joint1..joint%d.",
       num_joints(), arm_->n(), arm_->firmware().c_str(), arm_->n());
     arm_->close();
     arm_.reset();
