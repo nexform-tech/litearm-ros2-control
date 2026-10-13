@@ -685,22 +685,30 @@ void LitearmSystem::latch_command_to_measured()
 
 void LitearmSystem::stream_command()
 {
-  // Under an all-zero dq the arm holds no matter what the position field says: the firmware
-  // derives this axis's velocity ceiling from the command itself
-  // (`v_lim = clamp(|target_dq|, 0, speed_limit * gov_ratio)` in ARM_MODE_MOVE_JS), so a
-  // zero dq is a ceiling of zero. `target_q` is still assigned, and there is no way to
-  // reach it. Filling that field with the freshest measurement therefore changes nothing
-  // the arm does.
+  // The gate this substitution exists for is real, and it is in the firmware the arm runs:
   //
-  // What is recorded here *because this comment used to say otherwise*: this was justified
-  // as satisfying a firmware gate that rejects an all-zero dq whose target is more than
-  // JS_ZERO_DQ_EPS (5 mrad) from the measurement, answering ERR{0x03,0x02}. There is no
-  // such gate, and there is no such symbol. The firmware's only ERR{0x03,0x02} is the
-  // non-finite check in usb_cmd.c, and the control-layer rejections ctrl_accept_move_js
-  // returns are 0x03 (emergency or not enabled), 0x04 (zero gravity) and 0x06 (drop-hold
-  // latched) -- none of them about dq, and the firmware tree contains no occurrence of
-  // JS_ZERO_DQ_EPS at all. The substitution below is kept because it is harmless and pins
-  // a frame shape in a test, not because it is doing anything.
+  //   dq all zero AND some axis's target more than JS_ZERO_DQ_EPS (5 mrad) from the
+  //   measurement  ->  the whole frame is refused with ERR{0x03,0x02}
+  //
+  // It is absent from the current firmware source - Litearm1.9.0 has no occurrence of
+  // JS_ZERO_DQ_EPS anywhere - and that is not evidence that it does not exist. The symbol
+  // was added on 2026-09-28 as the "2026-09-24 batch" (7b57aff) and removed again before
+  // 1.9.0, while the arm still reports Litearm1.7.0, so the source and the machine are not
+  // the same build. A capture of the link settles it: eight refusals in fifty seconds, and
+  // every frame behind one has dq all zero with every value finite. The gate is what the
+  // arm obeys.
+  //
+  // It is there because a zero-dq command used to be answered with an ACK that did nothing
+  // - the firmware derives the axis's velocity ceiling from the command itself, so dq = 0
+  // freezes the reference - which is a client being told "done" for a motion nobody
+  // performed.
+  //
+  // Substituting the measurement is the right idea and it is not sufficient while the arm
+  // is moving: the measurement this process holds is up to one control period old and the
+  // firmware compares against where it is now. At the 100 Hz control rate a joint moving at
+  // 1 rad/s covers 10 mrad in one period, twice the 5 mrad the gate allows, so a hold frame
+  // is a coin flip at speed. A refused frame does not feed the watchdog, which is the
+  // stutter an operator feels - the gate turns a harmless no-op into a stall.
   const bool holding = std::all_of(
     command_velocity_.begin(), command_velocity_.end(),
     [](double v) { return v == 0.0; });
