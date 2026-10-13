@@ -157,6 +157,23 @@ Every parameter is optional:
 | `auto_enable` | `true` | Enable the motors in `on_activate`. Set `false` to control enablement yourself. |
 | `disable_on_shutdown` | `false` | Leave the motors enabled on shutdown, so the firmware holds the pose. `true` loses force and the arm drops. |
 | `enable_attempts` | `12` | Retries for `enable()`. The SDK sleeps 300 ms between them, and only retryable codes consume an attempt. |
+| `servo_command` | `move_js` | Which command the frames carry: `move_js` (target position plus a slew ceiling) or `joint_follow`. See below. |
+| `joint_follow_kp` | `15 15 10 10 5 5 3` | Stiffness per joint, only read when `servo_command` is `joint_follow`. |
+| `joint_follow_kd` | `2 2 1.5 1.5 0.8 0.8 0.5` | Damping per joint, same condition. |
+
+`servo_command:=joint_follow` sends `q`, `dq`, a stiffness and a damping per joint, and lets
+the firmware compute the feedforward (gravity and the joint limit wall) itself. **The
+firmware waives its overspeed and position envelope rules for the whole session**, so the
+host becomes the only bound on the arm — that is what the mode is for, and it is why it is
+not the default. It warns at startup, with the gains, every time it is selected.
+
+Do not reach for it to make the arm faster. Reach for it when something upstream needs to
+move the arm at a rate the envelope refuses, and only with the host's own limits in place.
+
+The gain lists are per joint and per joint count: a list whose length does not match the arm
+turns the mode off and falls back to `move_js`, rather than sending a command the SDK would
+refuse on every tick. The defaults are the Python SDK's `joint_follow` defaults
+(`control/joint_follow.py`), which are what this arm has been run on.
 
 A minimal controller set, using the standard controllers this package depends on:
 

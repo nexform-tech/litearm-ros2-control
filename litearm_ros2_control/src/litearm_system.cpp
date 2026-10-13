@@ -46,6 +46,43 @@ constexpr int kWriteFailureLimit = 50;
 /// seconds and is three orders of magnitude below anything an operator can see.
 constexpr double kHoldVelocityFloor = 1.0e-3;
 
+/// Joint_follow gains, taken from the reference implementation's defaults
+/// (`control/joint_follow.py` in the Python SDK: DEFAULT_K / DEFAULT_B). They are what this
+/// arm has been run on, so a rig with no opinion behaves like the one that has one. They are
+/// per joint and per joint count: a rig whose joint count differs has to say so, which is
+/// why a mismatch turns the joint_follow path off rather than being carried into a command
+/// the SDK would refuse every tick.
+const std::vector<double> kDefaultJointFollowKp = {15.0, 15.0, 10.0, 10.0, 5.0, 5.0, 3.0};
+const std::vector<double> kDefaultJointFollowKd = {2.0, 2.0, 1.5, 1.5, 0.8, 0.8, 0.5};
+
+/// Numbers from a space or comma separated list. Empty when an entry is not a number.
+std::vector<double> parse_double_list(const std::string & raw)
+{
+  std::vector<double> values;
+  std::string current;
+  for (std::size_t i = 0; i <= raw.size(); ++i) {
+    const char c = i < raw.size() ? raw[i] : ' ';
+    if (c == ',' || std::isspace(static_cast<unsigned char>(c)) != 0)
+    {
+      if (!current.empty())
+      {
+        try
+        {
+          values.push_back(std::stod(current));
+        }
+        catch (const std::exception &)
+        {
+          return {};
+        }
+        current.clear();
+      }
+      continue;
+    }
+    current.push_back(c);
+  }
+  return values;
+}
+
 std::string trim(const std::string & value)
 {
   const auto begin = value.find_first_not_of(" \t\r\n");
@@ -181,6 +218,58 @@ hardware_interface::CallbackReturn LitearmSystem::on_init(
   reset_faults_on_configure_ = parse_bool(param("reset_faults_on_configure"), false);
   disable_on_shutdown_ = parse_bool(param("disable_on_shutdown"), false);
 
+  // ── which servo command the frames carry, and the gains joint_follow needs ──
+  //
+  // `move_js` sends a target position and a slew ceiling; `joint_follow` sends the same two
+  // plus a stiffness and a damping per joint, and the firmware computes the feedforward.
+  // The difference that matters is that joint_follow enters a session in which the safety
+  // envelope's overspeed and position rules are waived, which is the point of it - and also
+  // why it is a parameter rather than a replacement: which one a rig wants is a decision
+  // about how much of the bound the host is willing to be.
+  const std::string servo = to_lower(param("servo_command"));
+  joint_follow_ = servo == "joint_follow";
+  if (!servo.empty() && !joint_follow_ && servo != "move_js")
+  {
+    RCLCPP_WARN(
+      logger_, "servo_command='%s' is neither 'move_js' nor 'joint_follow', using move_js.",
+      servo.c_str());
+  }
+
+  // A gain list that does not fit the arm is not carried into a command the SDK would refuse
+  // every tick: the joint_follow path is turned off and said so.
+  const std::vector<double> kp_raw = parse_double_list(param("joint_follow_kp"));
+  const std::vector<double> kd_raw = parse_double_list(param("joint_follow_kd"));
+  joint_follow_kp_ = kp_raw.empty() ? kDefaultJointFollowKp : kp_raw;
+  joint_follow_kd_ = kd_raw.empty() ? kDefaultJointFollowKd : kd_raw;
+  for (const auto * pair : {&joint_follow_kp_, &joint_follow_kd_})
+  {
+    if (pair->size() != num_joints())
+    {
+      RCLCPP_WARN(
+        logger_, "a joint_follow gain list has %zu entries for %zu joints; using move_js.",
+        pair->size(), num_joints());
+      joint_follow_ = false;
+      break;
+    }
+  }
+  if (joint_follow_)
+  {
+    for (const auto * pair : {&joint_follow_kp_, &joint_follow_kd_})
+    {
+      for (double gain : *pair)
+      {
+        if (!std::isfinite(gain) || gain < 0.0)
+        {
+          RCLCPP_WARN(
+            logger_, "a joint_follow gain is not finite and non negative; using move_js.");
+          joint_follow_ = false;
+          break;
+        }
+      }
+      if (!joint_follow_) break;
+    }
+  }
+
   const std::string attempts_raw = param("enable_attempts");
   if (!attempts_raw.empty())
   {
@@ -212,8 +301,7 @@ hardware_interface::CallbackReturn LitearmSystem::on_init(
   fw_velocity_.assign(num_joints(), 0.0);
 
   RCLCPP_INFO(
-    logger_, "Initialized: %zu joints, port='%s', diagnostics=%s, auto_enable=%s, "
-    "reset_faults_on_configure=%s.",
+    logger_, "Initialized: %zu joints, port='%s', diagnostics=%s, auto_enable=%s, "    "reset_faults_on_configure=%s.",
     num_joints(), port_.empty() ? "auto-discover" : port_.c_str(),
     export_diagnostics_ ? "on" : "off", auto_enable_ ? "on" : "off",
     reset_faults_on_configure_ ? "on" : "off");
@@ -286,6 +374,24 @@ hardware_interface::CallbackReturn LitearmSystem::on_configure(
   RCLCPP_INFO(
     logger_, "Configured: firmware=%s port=%s axes=%d.",
     arm_->firmware().c_str(), arm_->port_string().c_str(), arm_->n());
+
+  if (joint_follow_)
+  {
+    // Warned rather than informed: this configuration has the firmware's overspeed and
+    // position envelope rules waived for the whole session, so the host is the only thing
+    // bounding the arm. An operator has to know that before they move anything.
+    std::string gains;
+    for (std::size_t i = 0; i < joint_follow_kp_.size(); ++i)
+    {
+      gains += (i == 0 ? "" : " ") + std::to_string(joint_follow_kp_[i]) + "/" +
+               std::to_string(joint_follow_kd_[i]);
+    }
+    RCLCPP_WARN(
+      logger_,
+      "servo command is joint_follow: the firmware's overspeed and position rules are waived "
+      "for this session, so the host is the only bound. Gains kp/kd per joint: %s",
+      gains.c_str());
+  }
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -739,7 +845,18 @@ void LitearmSystem::stream_command()
     // The floor rather than zero, so that a hold is not a frame the gate above can refuse.
     // The position is still the measurement, so what the firmware is asked for is to stand
     // still - see kHoldVelocityFloor for why this is not a movement.
-    fw_velocity_[axis] = holding ? kHoldVelocityFloor : command_velocity_[i];
+    //
+    // Only on the move_js path: the gate is in the firmware's move_js handler and there is
+    // nothing to work around in joint_follow, where a zero dq is simply a zero velocity
+    // reference and carrying the floor there would be a small standing bias for no reason.
+    if (holding && !joint_follow_)
+    {
+      fw_velocity_[axis] = kHoldVelocityFloor;
+    }
+    else
+    {
+      fw_velocity_[axis] = command_velocity_[i];
+    }
   }
 
   // Fail closed here rather than let the firmware answer ERR{0x03,0x02}, which says only
@@ -781,7 +898,18 @@ void LitearmSystem::stream_command()
               "finite as a double and outside f32's range, so look at what produced it"));
   }
 
-  arm_->move_js(fw_position_, fw_velocity_);
+  if (joint_follow_)
+  {
+    // The impedance path: q and dq as references, kp and kd as the gains, and the
+    // feedforward left to the firmware. `servo_command:=joint_follow` warns at startup that
+    // the envelope's overspeed and position rules are waived for this session, because an
+    // operator needs to know that the host is now the only bound.
+    arm_->joint_follow(fw_position_, fw_velocity_, joint_follow_kp_, joint_follow_kd_);
+  }
+  else
+  {
+    arm_->move_js(fw_position_, fw_velocity_);
+  }
 }
 
 hardware_interface::return_type LitearmSystem::read(

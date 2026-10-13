@@ -195,6 +195,13 @@ private:
   std::string port_;
   bool export_diagnostics_ = true;
   bool auto_enable_ = true;
+  /// Which servo command the frames carry: `move_js` (false) or `joint_follow` (true). See
+  /// `servo_command` in read_parameters for what the second one costs.
+  bool joint_follow_ = false;
+  /// Gains for the joint_follow path, one entry per joint. Only read when it is selected, and
+  /// only when their count matches the arm.
+  std::vector<double> joint_follow_kp_;
+  std::vector<double> joint_follow_kd_;
   // Clear a latched arm fault during on_configure. Off by default: a latched EMERGENCY or
   // joint_fault is the firmware asking for a human decision. A deployment that wants its
   // start-up to be one command turns it on through the URDF parameter.

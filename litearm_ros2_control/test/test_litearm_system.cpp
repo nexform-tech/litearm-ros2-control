@@ -450,6 +450,146 @@ TEST(LitearmSystemWrite, RefusesANonFiniteCommandBeforeTheWire)
   ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
 }
 
+/// Payload of the last frame of this command, as f32 values. Empty when the size is wrong.
+std::vector<double> last_frame(
+  const TestSystem & sys, uint8_t command, std::size_t expected)
+{
+  std::vector<uint8_t> payload;
+  for (const auto & entry : sys.fake()->tx_snapshot())
+  {
+    if (entry.first == command)
+    {
+      payload = entry.second;
+    }
+  }
+  if (payload.size() != expected * sizeof(float))
+  {
+    return {};
+  }
+  return litearm::proto::unpack_f32s(payload.data(), 0, expected);
+}
+
+TEST(LitearmSystemServoCommand, DefaultsToMoveJs)
+{
+  // The default has to stay move_js. joint_follow has the firmware waive its overspeed and
+  // position envelope rules for the session, and that is not something a rig should acquire
+  // by not saying anything about it.
+  const std::vector<double> measured(7, 0.1);
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  EXPECT_FALSE(sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).empty());
+  EXPECT_TRUE(sys.fake()->stamps_of(litearm::proto::CMD_JOINT_FOLLOW).empty());
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemServoCommand, JointFollowSendsTheReferencesAndTheDefaultGains)
+{
+  const std::vector<double> measured(7, 0.1);
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"},
+                                               {"servo_command", "joint_follow"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  const std::size_t count = measured.size();
+  const auto frame = last_frame(sys, litearm::proto::CMD_JOINT_FOLLOW, 4u * count);
+  ASSERT_EQ(frame.size(), 4u * count);
+
+  // The gains are the reference implementation's defaults, pinned here as literals rather
+  // than read from the implementation: a test that asks the code what it does is not a test.
+  const std::vector<double> expected_kp = {15.0, 15.0, 10.0, 10.0, 5.0, 5.0, 3.0};
+  const std::vector<double> expected_kd = {2.0, 2.0, 1.5, 1.5, 0.8, 0.8, 0.5};
+  for (std::size_t i = 0; i < count; ++i)
+  {
+    // No controller wrote a command, so this frame is a hold: q is the measurement, dq is 0.
+    EXPECT_NEAR(frame[i], measured[i], 1e-6) << "q_ref joint " << i + 1;
+    EXPECT_DOUBLE_EQ(frame[count + i], 0.0) << "dq_ref joint " << i + 1;
+    // The gains travel as f32, so a gain like 0.8 comes back as 0.80000001 and comparing at
+    // double precision would fail on the wire's rounding rather than on the value.
+    EXPECT_NEAR(frame[2u * count + i], expected_kp[i], 1e-6) << "kp joint " << i + 1;
+    EXPECT_NEAR(frame[3u * count + i], expected_kd[i], 1e-6) << "kd joint " << i + 1;
+  }
+
+  // And move_js was not also sent: the frame carries one command, not both.
+  EXPECT_TRUE(sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).empty());
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemServoCommand, JointFollowGainsCanBeOverridden)
+{
+  const std::vector<double> measured(7, 0.1);
+  TestSystem sys(measured);
+  const auto info = make_info(
+    seven_joints(),
+    {{"port", "fake"}, {"auto_enable", "false"}, {"servo_command", "joint_follow"},
+     {"joint_follow_kp", "20, 20, 10, 10, 5, 5, 3"}, {"joint_follow_kd", "3 3 1 1 1 1 1"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  const std::size_t count = measured.size();
+  const auto frame = last_frame(sys, litearm::proto::CMD_JOINT_FOLLOW, 4u * count);
+  ASSERT_EQ(frame.size(), 4u * count);
+  // A comma separated list and a space separated one both work, because an operator writing
+  // either of them means the same thing.
+  EXPECT_NEAR(frame[2u * count], 20.0, 1e-6);
+  EXPECT_NEAR(frame[3u * count + 6u], 1.0, 1e-6);
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemServoCommand, GainsThatDoNotFitTheArmFallBackToMoveJs)
+{
+  // A gain list of the wrong length would make every frame a command the SDK refuses, so it
+  // turns the mode off instead of being carried into the stream.
+  const std::vector<double> measured(7, 0.1);
+  TestSystem sys(measured);
+  const auto info = make_info(
+    seven_joints(),
+    {{"port", "fake"}, {"auto_enable", "false"}, {"servo_command", "joint_follow"},
+     {"joint_follow_kp", "1 2 3"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  EXPECT_TRUE(sys.fake()->stamps_of(litearm::proto::CMD_JOINT_FOLLOW).empty());
+  EXPECT_FALSE(sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).empty());
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemServoCommand, TheModeIsMatchedCaseInsensitively)
+{
+  const std::vector<double> measured(7, 0.1);
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"},
+                                               {"servo_command", "Joint_Follow"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  // Matched case insensitively, the same as every other boolean-ish parameter here.
+  EXPECT_FALSE(sys.fake()->stamps_of(litearm::proto::CMD_JOINT_FOLLOW).empty());
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
 TEST(LitearmSystemLifecycle, ResetFaultsOnConfigureIsOptIn)
 {
   const std::vector<double> measured(7, 0.1);
