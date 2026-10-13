@@ -376,6 +376,66 @@ TEST(LitearmSystemLifecycle, ZeroVelocityFrameCarriesTheMeasuredPosition)
   ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
 }
 
+TEST(LitearmSystemWrite, RefusesACommandTheWireWouldNotCarry)
+{
+  // `move_js` narrows every value to f32 on the way out (`static_cast<float>` in
+  // proto::pack_f32s), so a finite double above FLT_MAX arrives as an infinity. A guard
+  // written in terms of doubles passes it, and the firmware then answers ERR{0x03,0x02},
+  // which says neither which axis nor what the value was - the frame has to be stopped
+  // here instead, and the refusal has to name both.
+  const std::vector<double> measured(7, 0.0);
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  auto command = sys.export_command_interfaces();
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  // Both of these are true at once, and a check that only makes the first one fails on the
+  // second: that pair is the whole reason this test exists.
+  const double too_big = 1e39;
+  ASSERT_TRUE(std::isfinite(too_big));
+  ASSERT_FALSE(std::isfinite(static_cast<float>(too_big)));
+
+  // On the velocity, because a frame whose velocities are all zero has its positions
+  // replaced with the measurement - which would hide the value being tested.
+  command[2u * 3u + 1u].set_value(too_big);
+
+  const auto before = sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).size();
+  EXPECT_EQ(sys.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+  EXPECT_EQ(sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).size(), before)
+    << "a frame the wire would not carry was sent anyway";
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemWrite, RefusesANonFiniteCommandBeforeTheWire)
+{
+  // The other half of the same guard: a value that is already non-finite here, which is a
+  // bug in this process or in the status frame rather than a number that is merely too
+  // large. Both are refused, and the message says which of the two it is, because that is
+  // the question the next person has to answer.
+  const std::vector<double> measured(7, 0.0);
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  auto command = sys.export_command_interfaces();
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  command[2u * 5u + 1u].set_value(std::numeric_limits<double>::quiet_NaN());
+
+  const auto before = sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).size();
+  EXPECT_EQ(sys.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+  EXPECT_EQ(sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).size(), before);
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
 TEST(LitearmSystemLifecycle, ResetFaultsOnConfigureIsOptIn)
 {
   const std::vector<double> measured(7, 0.1);

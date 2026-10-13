@@ -685,12 +685,22 @@ void LitearmSystem::latch_command_to_measured()
 
 void LitearmSystem::stream_command()
 {
-  // Since 2026-09-24 the firmware rejects a MOVE_JS frame whose dq is all zero and whose
-  // target differs from the measurement by more than JS_ZERO_DQ_EPS (5 mrad) -- it answers
-  // ERR{0x03,0x02}, which the SDK's error table labels "non-finite", and a rejected frame
-  // does not feed the watchdog. Under an all-zero dq the firmware freezes its own reference
-  // and ignores the position field anyway, so filling that field with the freshest
-  // measurement satisfies the gate and changes nothing the arm does.
+  // Under an all-zero dq the arm holds no matter what the position field says: the firmware
+  // derives this axis's velocity ceiling from the command itself
+  // (`v_lim = clamp(|target_dq|, 0, speed_limit * gov_ratio)` in ARM_MODE_MOVE_JS), so a
+  // zero dq is a ceiling of zero. `target_q` is still assigned, and there is no way to
+  // reach it. Filling that field with the freshest measurement therefore changes nothing
+  // the arm does.
+  //
+  // What is recorded here *because this comment used to say otherwise*: this was justified
+  // as satisfying a firmware gate that rejects an all-zero dq whose target is more than
+  // JS_ZERO_DQ_EPS (5 mrad) from the measurement, answering ERR{0x03,0x02}. There is no
+  // such gate, and there is no such symbol. The firmware's only ERR{0x03,0x02} is the
+  // non-finite check in usb_cmd.c, and the control-layer rejections ctrl_accept_move_js
+  // returns are 0x03 (emergency or not enabled), 0x04 (zero gravity) and 0x06 (drop-hold
+  // latched) -- none of them about dq, and the firmware tree contains no occurrence of
+  // JS_ZERO_DQ_EPS at all. The substitution below is kept because it is harmless and pins
+  // a frame shape in a test, not because it is doing anything.
   const bool holding = std::all_of(
     command_velocity_.begin(), command_velocity_.end(),
     [](double v) { return v == 0.0; });
@@ -701,18 +711,43 @@ void LitearmSystem::stream_command()
     fw_velocity_[axis] = command_velocity_[i];
   }
 
-  // Fail closed here rather than let the firmware answer ERR 03,02: a non-finite value
-  // on the wire is either a bug in this process or a broken status frame, and the
-  // firmware's error alone does not say which axis or what the value was.
-  for (std::size_t axis = 0; axis < fw_position_.size(); ++axis)
+  // Fail closed here rather than let the firmware answer ERR{0x03,0x02}, which says only
+  // that some value was not finite -- not which axis, and not what it was.
+  //
+  // The check is made at the precision the value travels in, not only at the precision it
+  // is held in. `move_js` narrows every value to f32 on the way out (proto::pack_f32s does
+  // `static_cast<float>`), so a *finite* double above FLT_MAX arrives as an infinity: it
+  // passes a check written in terms of doubles and the firmware rejects the frame with
+  // nothing to go on. That is the one way a value can leave this process non-finite without
+  // being non-finite here, and it is what this loop used to miss.
+  //
+  // Iterating over joints rather than axes so the message can name the joint: the two are
+  // a permutation of each other (joint_to_axis_, validated at init), so this still covers
+  // every axis.
+  for (std::size_t i = 0; i < num_joints(); ++i)
   {
-    if (!std::isfinite(fw_position_[axis]) || !std::isfinite(fw_velocity_[axis]))
+    const std::size_t axis = joint_to_axis_[i];
+    const double q_ref = fw_position_[axis];
+    const double dq_ref = fw_velocity_[axis];
+    const float q_wire = static_cast<float>(q_ref);
+    const float dq_wire = static_cast<float>(dq_ref);
+    if (std::isfinite(q_wire) && std::isfinite(dq_wire))
     {
-      throw std::runtime_error(
-              "refusing to send a non-finite command frame: axis " +
-              std::to_string(axis + 1) + " q_ref=" + std::to_string(fw_position_[axis]) +
-              " dq_ref=" + std::to_string(fw_velocity_[axis]));
+      continue;
     }
+
+    // Which of the two it is decides where to look: a value already non-finite here came
+    // from this process or from the status frame, and one that only became non-finite on
+    // the way out came from a number that is merely too large.
+    const bool already_broken = !std::isfinite(q_ref) || !std::isfinite(dq_ref);
+    throw std::runtime_error(
+            "refusing to send a command frame the wire would not carry: joint " +
+            info_.joints[i].name + ", axis " + std::to_string(axis + 1) + ", q_ref=" +
+            std::to_string(q_ref) + " (f32 " + std::to_string(q_wire) + "), dq_ref=" +
+            std::to_string(dq_ref) + " (f32 " + std::to_string(dq_wire) + ") -- " +
+            (already_broken ?
+              "non-finite before the wire, so look at this process or the status frame" :
+              "finite as a double and outside f32's range, so look at what produced it"));
   }
 
   arm_->move_js(fw_position_, fw_velocity_);
