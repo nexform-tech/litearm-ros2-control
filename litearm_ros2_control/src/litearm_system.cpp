@@ -31,6 +31,21 @@ namespace
 /// trajectories the arm is not executing.
 constexpr int kWriteFailureLimit = 50;
 
+/// The command velocity a hold frame carries, in rad/s, instead of exactly zero.
+///
+/// The firmware refuses a frame whose dq is all zero when any axis's target is more than
+/// JS_ZERO_DQ_EPS (5 mrad) from where the arm is, with ERR{0x03,0x02}, and a refused frame
+/// does not feed the watchdog - so a hold becomes a stall. The gap that trips it is not a
+/// mistake in the target: it is the arm's own settling over the one control period between
+/// the status frame this process holds and the moment the firmware compares, measured at
+/// 6.3 mrad on a joint settling at about 0.6 rad/s, which is over the line.
+///
+/// A frame with any non zero dq is not a candidate for that gate. This is not a motion: the
+/// target is the measurement, so what it asks the firmware for is the last few milliradians
+/// of settling and then nothing. 1e-3 rad/s closes the largest gap seen here in a few
+/// seconds and is three orders of magnitude below anything an operator can see.
+constexpr double kHoldVelocityFloor = 1.0e-3;
+
 std::string trim(const std::string & value)
 {
   const auto begin = value.find_first_not_of(" \t\r\n");
@@ -685,30 +700,35 @@ void LitearmSystem::latch_command_to_measured()
 
 void LitearmSystem::stream_command()
 {
-  // The gate this substitution exists for is real, and it is in the firmware the arm runs:
+  // A hold is sent with a non zero command velocity. The gate that makes that necessary:
   //
   //   dq all zero AND some axis's target more than JS_ZERO_DQ_EPS (5 mrad) from the
   //   measurement  ->  the whole frame is refused with ERR{0x03,0x02}
   //
-  // It is absent from the current firmware source - Litearm1.9.0 has no occurrence of
-  // JS_ZERO_DQ_EPS anywhere - and that is not evidence that it does not exist. The symbol
-  // was added on 2026-09-28 as the "2026-09-24 batch" (7b57aff) and removed again before
-  // 1.9.0, while the arm still reports Litearm1.7.0, so the source and the machine are not
-  // the same build. A capture of the link settles it: eight refusals in fifty seconds, and
-  // every frame behind one has dq all zero with every value finite. The gate is what the
-  // arm obeys.
+  // It is in the firmware the arm runs and not in the firmware source this was written
+  // against: Litearm1.9.0 has no occurrence of JS_ZERO_DQ_EPS, the symbol was added on
+  // 2026-09-28 as the "2026-09-24 batch" (7b57aff), and the arm reports 1.10.0. The source
+  // is therefore not evidence about the machine, and reading it and finding nothing is what
+  // produced a wrong correction here once already. What is evidence: a capture of the link
+  // shows eight refusals in fifty seconds and every frame behind one has dq all zero with
+  // every value finite, and a probe against /joint_states measures the gap the gate tests at
+  // 6.3 mrad on a joint that is settling.
   //
-  // It is there because a zero-dq command used to be answered with an ACK that did nothing
-  // - the firmware derives the axis's velocity ceiling from the command itself, so dq = 0
-  // freezes the reference - which is a client being told "done" for a motion nobody
-  // performed.
+  // Substituting the measurement cannot satisfy the gate on its own, which is why it did not.
+  // The measurement this process holds is up to one control period old and the firmware
+  // compares against where the arm is now, so the gap is the arm's own settling over that
+  // period - 6 mrad at 0.6 rad/s, already over the line at the 100 Hz control rate. Sending
+  // the same value more carefully does not help: the value is the stale thing.
   //
-  // Substituting the measurement is the right idea and it is not sufficient while the arm
-  // is moving: the measurement this process holds is up to one control period old and the
-  // firmware compares against where it is now. At the 100 Hz control rate a joint moving at
-  // 1 rad/s covers 10 mrad in one period, twice the 5 mrad the gate allows, so a hold frame
-  // is a coin flip at speed. A refused frame does not feed the watchdog, which is the
-  // stutter an operator feels - the gate turns a harmless no-op into a stall.
+  // What does help is not being a candidate for the gate at all. It needs dq to be all zero,
+  // so a hold carries the floor instead.
+  //
+  // The gate itself is not the defect. It exists because the firmware derives an axis's
+  // velocity ceiling from the command it is given (`v_lim = clamp(|target_dq|, 0,
+  // speed_limit * gov_ratio)`), so a zero-dq command used to freeze the reference while
+  // being answered with an ACK - a client told "done" for a motion nobody performed. The
+  // defect is that a refused frame does not feed the watchdog, which turns a refused no-op
+  // into a stall the operator feels.
   const bool holding = std::all_of(
     command_velocity_.begin(), command_velocity_.end(),
     [](double v) { return v == 0.0; });
@@ -716,7 +736,10 @@ void LitearmSystem::stream_command()
   {
     const std::size_t axis = joint_to_axis_[i];
     fw_position_[axis] = (holding && have_state_) ? state_position_[i] : command_position_[i];
-    fw_velocity_[axis] = command_velocity_[i];
+    // The floor rather than zero, so that a hold is not a frame the gate above can refuse.
+    // The position is still the measurement, so what the firmware is asked for is to stand
+    // still - see kHoldVelocityFloor for why this is not a movement.
+    fw_velocity_[axis] = holding ? kHoldVelocityFloor : command_velocity_[i];
   }
 
   // Fail closed here rather than let the firmware answer ERR{0x03,0x02}, which says only

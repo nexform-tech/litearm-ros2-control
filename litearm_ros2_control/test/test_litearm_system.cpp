@@ -234,7 +234,11 @@ TEST(LitearmSystemLifecycle, FullRunAgainstFakeFirmware)
   for (std::size_t i = 0; i < measured.size(); ++i)
   {
     EXPECT_NEAR(frame[i], measured[i], 1e-6) << "q_ref axis " << i;
-    EXPECT_DOUBLE_EQ(frame[measured.size() + i], 0.0) << "dq_ref axis " << i;
+    // Not zero: a hold carries the floor, because dq all zero is the first condition of the
+    // firmware gate that refuses a frame and starves the watchdog. See
+    // ZeroVelocityFrameCarriesTheMeasuredPosition for the whole of it.
+    EXPECT_GT(frame[measured.size() + i], 0.0) << "dq_ref axis " << i;
+    EXPECT_LE(frame[measured.size() + i], 1e-2) << "dq_ref axis " << i;
   }
 
   ASSERT_EQ(sys.on_deactivate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
@@ -345,10 +349,17 @@ TEST(LitearmSystemLifecycle, RetriesTheSeedFrameAfterARefusal)
 
 TEST(LitearmSystemLifecycle, ZeroVelocityFrameCarriesTheMeasuredPosition)
 {
-  // Firmware gate (2026-09-24): a MOVE_JS frame with dq all zero and a target more than
-  // JS_ZERO_DQ_EPS (5 mrad) from the measurement is rejected whole with ERR{0x03,0x02}.
-  // Under dq=0 the firmware freezes its own reference and ignores the position field, so
-  // the frame must carry the measurement instead of the unreachable target.
+  // The command is a hold - every velocity zero - and the target is 1 rad from the
+  // measurement, far beyond the firmware's 5 mrad gate. Two things have to be true of the
+  // frame that goes out.
+  //
+  // The position has to be the measurement rather than the unreachable target, because a
+  // target the arm is not at is a target the firmware would slew towards.
+  //
+  // And the velocity must NOT be zero. The gate refuses a frame whose dq is all zero when
+  // the target is that far off, with ERR{0x03,0x02}, and a refused frame does not feed the
+  // watchdog: the hold becomes a stall, which is the stutter this floor exists to remove.
+  // A frame with any non zero dq is not a candidate for the gate at all.
   const std::vector<double> measured{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7};
   TestSystem sys(measured);
   const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
@@ -370,7 +381,10 @@ TEST(LitearmSystemLifecycle, ZeroVelocityFrameCarriesTheMeasuredPosition)
   for (std::size_t i = 0; i < measured.size(); ++i)
   {
     EXPECT_NEAR(frame[i], measured[i], 1e-6) << "q_ref axis " << i;
-    EXPECT_DOUBLE_EQ(frame[measured.size() + i], 0.0) << "dq_ref axis " << i;
+    EXPECT_GT(frame[measured.size() + i], 0.0)
+      << "dq_ref axis " << i << " is zero, which makes this frame refusable by the gate";
+    EXPECT_LE(frame[measured.size() + i], 1e-2)
+      << "dq_ref axis " << i << " is large enough to be a movement rather than a hold";
   }
 
   ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
