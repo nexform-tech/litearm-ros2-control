@@ -78,9 +78,6 @@ USB CDC 串口，SDK 会对它加独占 `flock`——所以一次只跑一个。
 colcon build --cmake-args -DLITEARM_CPP_DIR=/path/to/litearm-cpp
 ```
 
-**不要把固件仓库放进同一个工作区。** `litearm-stm32` 自带一个 `litearm` URDF 包，一个工作区里有两份
-机械臂描述会让 launch 不知道该解析哪一份。
-
 **不需要 MoveIt 就不要放 `litearm-moveit2`。** 只有《启动 MoveIt 栈》那一节的第三条命令要用到它，
 本文其余部分都用不到。
 

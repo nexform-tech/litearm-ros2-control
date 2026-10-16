@@ -82,10 +82,6 @@ checkout somewhere else, point CMake at it instead of moving the tree:
 colcon build --cmake-args -DLITEARM_CPP_DIR=/path/to/litearm-cpp
 ```
 
-**Do not add the firmware repository to the same workspace.** `litearm-stm32` ships its own `litearm`
-URDF package, and two arm descriptions in one workspace make it ambiguous which one a launch
-resolves.
-
 **Do not add `litearm-moveit2` unless you want MoveIt.** It is needed by the third launch command in
 [Running the MoveIt stack](#running-the-moveit-stack) and by nothing else here.
 
