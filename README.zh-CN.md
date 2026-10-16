@@ -158,8 +158,9 @@ colcon build --cmake-args -DLITEARM_CPP_DIR=/path/to/litearm-cpp
 自己的限制。
 
 增益列表是**逐关节且与关节数绑定**的：长度与关节数不符时该模式会被关掉并退回 `move_js`，而不是
-每拍发一条 SDK 会拒绝的命令。默认值取自 Python SDK 的 `joint_follow` 默认值
-（`control/joint_follow.py`），也就是这台臂一直在跑的那组。
+每拍发一条 SDK 会拒绝的命令。默认值取自 litearm-lerobot `servo.py` 里的
+`DEFAULT_K_P` / `DEFAULT_K_D` —— 这是本工作区里唯一在真机上跑过这条通路的增益表，源头是
+liteteleop 的 `SETUP_K` / `SETUP_B`。
 
 一套最小的控制器配置，用的是本包依赖的标准控制器：
 

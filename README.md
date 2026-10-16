@@ -172,8 +172,9 @@ move the arm at a rate the envelope refuses, and only with the host's own limits
 
 The gain lists are per joint and per joint count: a list whose length does not match the arm
 turns the mode off and falls back to `move_js`, rather than sending a command the SDK would
-refuse on every tick. The defaults are the Python SDK's `joint_follow` defaults
-(`control/joint_follow.py`), which are what this arm has been run on.
+refuse on every tick. The defaults are `DEFAULT_K_P` / `DEFAULT_K_D` from litearm-lerobot's
+`servo.py` — the one gain table in this workspace that has run this path on real hardware,
+taken there from liteteleop's `SETUP_K` / `SETUP_B`.
 
 A minimal controller set, using the standard controllers this package depends on:
 
