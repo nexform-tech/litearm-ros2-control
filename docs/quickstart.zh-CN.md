@@ -31,7 +31,7 @@ USB CDC 串口，SDK 会对它加独占 `flock`——所以一次只跑一个。
 | 系统 | Ubuntu 22.04 (jammy)，x86_64 |
 | ROS 2 | Humble |
 | Docker | 任意较新版本，仅容器路径需要 |
-| 磁盘 | 容器路径约 8 GB，宿主机路径约 3 GB |
+| 磁盘 | 容器路径约 8 GB，宿主机路径约 3 GB（其中大部分是 ROS 2 本身） |
 | 机械臂 | 必需：本栈没有空跑模式 |
 | 固件 | `Litearm1.5.0` 或更新，版本串形如 `Litearm<major.minor.patch>-{7J\|1J}` |
 | 连接 | USB CDC 串口，`VID:PID 1d50:606f` |
@@ -106,7 +106,7 @@ EOF
 `ros-humble-ros2controlcli` 提供下面用到的 `ros2 control` 子命令。它不是本仓库的依赖；没装的话就退回
 用 `controller_manager_msgs` 的服务，那些不需要额外安装。
 
-构建要几分钟，产出的镜像约 5.6 GB。
+构建要几分钟，产出的镜像约 5.5 GB。
 
 ### 2. 建工作区并克隆各包（在宿主机上）
 

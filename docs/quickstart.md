@@ -34,7 +34,7 @@ the track that matches your machine — both end at the same commands.
 | OS | Ubuntu 22.04 (jammy), x86_64 |
 | ROS 2 | Humble |
 | Docker | any recent version, for the container track only |
-| Disk | about 8 GB for the container track, about 3 GB for the host track |
+| Disk | about 8 GB for the container track; about 3 GB for the host track, most of it the ROS 2 install itself |
 | Arm | required: this stack has no dry run |
 | Firmware | `Litearm1.5.0` or newer, reported as `Litearm<major.minor.patch>-{7J\|1J}` |
 | Connection | USB CDC serial, `VID:PID 1d50:606f` |
@@ -112,7 +112,7 @@ EOF
 dependency of this repository, and without it you fall back on the `controller_manager_msgs`
 services, which need nothing extra.
 
-This takes a few minutes and produces an image of about 5.6 GB.
+This takes a few minutes and produces an image of about 5.5 GB.
 
 ### 2. Create the workspace and clone the packages (on the host)
 
