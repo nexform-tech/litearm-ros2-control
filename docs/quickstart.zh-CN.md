@@ -441,7 +441,7 @@ fuser -v /dev/ttyACM0 2>/dev/null      # 必要时看谁还占着串口
 | `install/setup.bash: No such file or directory`，随后 `Package 'litearm_ros2_control' not found` | 容器的 `-v` 指向了一个从未编译过的工作区，或者指向了一个当时不存在、被 Docker 建成空目录的路径。确认宿主机那个目录里有 `src/`、`build/` 和 `install/`。 |
 | `未找到 STM32 CDC (VID:PID 1d50:606f)` | 板子没插、没上电，或处在 DFU。先看 `lsusb`；DFU 下会枚举成 `0483:DF11`，需要刷固件才能回来。 |
 | 刚才 driver 跑过，configure 就失败 | 串口仍被占用。停掉另一个进程再试，没有第二个进程能共用它。 |
-| 容器里 configure 打不开串口 | 设备没透传进去，或容器不在拥有它的组里。`--device` 和 `--group-add` 两个都要有。 |
+| 容器里 configure 打不开串口 | 设备没透传进去，或容器不在拥有它的组里。`--device` 和 `--group-add` 两个都要有。这个失败是致命的：`ros2_control_node` 直接 abort，日志以 `Failed to set the initial state of the component` 之后的堆栈结尾。 |
 | `ENABLE was refused: ... ERR{0x10,0x06}` | 固件里有锁存故障（EMERGENCY 或 `joint_fault`）。控制栈在配置时会清一次，除非 `clear_faults:=false`。 |
 | `First command frame failed: ... ERR{0x03,0x02}` | 首帧发出时机械臂还没真正加磁。组件已修（会等状态帧的 enabled 位）；若再现，说明固件拒绝了一条 `dq` 全 0、目标离实测超过 5 mrad 的帧。 |
 | 宿主机上报 `Package 'litearm_ros2_control' not found` | 工作区是在 `src/` 里面编译的，`install/` 落在了错误的位置。回到工作区根目录重新编译。 |
