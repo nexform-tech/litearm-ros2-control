@@ -10,8 +10,9 @@ shared memory: `read()` consumes the SDK's cached 100 Hz status frame, and `writ
 command reference back with the firmware's `MOVE_JS` servo. Trajectory planning, kinematics and
 dynamics all stay in the firmware — the host sends joint references and reads state back.
 
-This repository holds two packages: the plugin, and the URDF description it launches with. The
-standalone maintenance driver and its message package live in
+This repository holds one package: the plugin. The URDF description it launches with lives in its
+own repository, [litearm-description](https://github.com/nexform-tech/litearm-description) (package
+`litearm_description`). The standalone maintenance driver and its message package live in
 [litearm-ros2](https://github.com/nexform-tech/litearm-ros2).
 
 ## Packages
@@ -72,7 +73,7 @@ Opt-in diagnostic state interfaces, exported on every joint when
 | SDK | `litearm-cpp`, either installed or as a sibling source tree |
 | Firmware | `Litearm1.5.0` or newer — reported as `Litearm<major.minor.patch>-{7J\|1J}` |
 | Connection | USB CDC serial, `VID:PID 1d50:606f` |
-| Display, optional | `rviz2` and `joint_state_publisher_gui`, needed only for `ros2 launch litearm display.launch.py` |
+| Display, optional | `rviz2` and `joint_state_publisher_gui`, needed only for `ros2 launch litearm_description display.launch.py` |
 
 Firmware older than 1.5.0 is rejected at connect time: the plugin depends on the 6+21N status frame
 layout, the `joint_fault` field, and the enabled bit that 1.5.0 introduced.
