@@ -16,19 +16,23 @@ USB CDC 串口，SDK 会对它加独占 `flock`——所以一次只跑一个。
 source /opt/ros/humble/setup.bash
 source ~/litearm_ws/install/setup.bash
 
-lsusb | grep 1d50          # 应看到 1d50:606f
-ls /dev/ttyACM*            # 应看到 /dev/ttyACM0
-ros2 pkg prefix litearm    # 应看到 <工作区>/install/litearm
+lsusb | grep 1d50                    # 应看到 1d50:606f
+ls /dev/ttyACM*                      # 应看到 /dev/ttyACM0
+ros2 pkg prefix litearm_description  # 应看到 <工作区>/install/litearm_description
 ```
 
-最后一条是 URDF 描述包。它随 litearm-ros2-control 一起发布，不需要额外安装；缺了它下面的 launch
-会在拼 `robot_description` 时报错。
+最后一条是 URDF 描述包。它住在自己的仓库
+[litearm-description](https://github.com/nexform-tech/litearm-description)（包名
+`litearm_description`），因此该仓库必须在工作区里；缺了它，下面的 launch 会在拼
+`robot_description` 时报错。
 
 ## 1. ros2_control 栈
 
 **只起控制栈**——`robot_state_publisher`、`controller_manager` 与两个控制器。manager 必须来自
 一个拥有描述文件与硬件组件的栈；这条 launch 自己拉起 manager，因此需要本包随附的 URDF 入口
-（`urdf/litearm.urdf.xacro`），而它会拉进同一仓库里的 `litearm` 描述包。
+（`urdf/litearm.urdf.xacro`），而它会从
+[litearm-description](https://github.com/nexform-tech/litearm-description) 拉进
+`litearm_description` 模型。
 
 ```bash
 ros2 launch litearm_ros2_control litearm_control.launch.py

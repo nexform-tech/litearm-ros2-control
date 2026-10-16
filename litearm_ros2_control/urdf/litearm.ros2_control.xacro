@@ -4,7 +4,7 @@
   direct-USB stack.
 
   This file declares the component only; the kinematics and the geometry come
-  from the description package (`litearm`). A deployment includes both, usually
+  from the description package (`litearm_description`). A deployment includes both, usually
   through urdf/litearm.urdf.xacro in this package.
 
   Interface surface (matches the component's own documentation):
