@@ -34,32 +34,47 @@ find_package(rclcpp_lifecycle REQUIRED)
 # out beside litearm-cpp in the workspace source directory, so the SDK is two levels up
 # (`<ws>/src/litearm-ros2-control/litearm_ros2_control` -> `<ws>/src/litearm-cpp`).
 set(LITEARM_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../litearm-cpp"
-  CACHE PATH "litearm-cpp source tree, used when no installed litearm package is found")
+  CACHE PATH "litearm-cpp source tree, used when no installed litearm package is usable")
 
 find_package(litearm CONFIG QUIET)
 
-# ⚠ The robot description package is also called `litearm`, so find_package can resolve to
-# its CMake config instead of the SDK's -- they share a name, and the description package
-# exports no target at all. The target, not litearm_FOUND, is therefore the test for "the
-# SDK is installed"; anything else falls through to the sibling source tree below.
+# ⚠ The test for "the SDK is installed" is the target, not litearm_FOUND: a package config
+# can be located while exporting nothing this package can link.
+#
+# ⚠ Which target gets linked is decided here, not at the link line. When the installed copy
+# is a static archive it is rejected below and the sibling tree is built instead -- but
+# `litearm::litearm` still resolves to that imported archive in *this* directory scope,
+# because the SDK's own alias of that name belongs to its subdirectory. Linking
+# litearm::litearm unconditionally would therefore turn the guard below into nothing but a
+# later, worse link error.
+set(_litearm_target "")
+set(_litearm_installed_static FALSE)
 if(litearm_FOUND AND TARGET litearm::litearm)
   # A ros2_control plugin is a shared object, so the SDK it embeds must be position
   # independent. A static litearm is fine only if it was built with PIC.
   get_target_property(_litearm_type litearm::litearm TYPE)
   if(_litearm_type STREQUAL "STATIC_LIBRARY")
-    message(FATAL_ERROR
-      "The installed litearm::litearm is a static library (${_litearm_type}). A shared "
-      "plugin cannot link a non-PIC static library. Reinstall litearm-cpp with "
-      "-DBUILD_SHARED_LIBS=ON, or delete that install and let this package build the "
-      "sibling tree instead.")
+    set(_litearm_installed_static TRUE)
+  else()
+    set(_litearm_target litearm::litearm)
   endif()
+endif()
+
+if(_litearm_target)
   message(STATUS "Using installed litearm (${litearm_DIR})")
-else()
-  if(NOT EXISTS "${LITEARM_CPP_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR
-      "No installed litearm package was found, and the litearm-cpp source tree is not at "
-      "'${LITEARM_CPP_DIR}'. Either install litearm-cpp (cmake with -DBUILD_SHARED_LIBS=ON, "
-      "then its install step) or pass -DLITEARM_CPP_DIR=<path to litearm-cpp>.")
+elseif(EXISTS "${LITEARM_CPP_DIR}/CMakeLists.txt")
+  # ⚠ Reaching here with an installed static litearm is the *normal* workspace case, not a
+  # broken install. litearm-cpp has no package.xml, so colcon treats it as a plain CMake
+  # project, installs a non-PIC static archive into install/litearm-cpp, and that copy lands
+  # on CMAKE_PREFIX_PATH as soon as the workspace's install/setup.bash is sourced -- which
+  # the documented flow does at every step. It is never the copy to link while the sibling
+  # source tree sits right there: the same sources, built PIC. Failing here instead asked
+  # the reader to delete that install, which does not work: colcon rebuilds and reinstalls
+  # it in the same invocation, and the failure then survives every later reconfigure.
+  if(_litearm_installed_static)
+    message(STATUS
+      "Ignoring the installed static litearm ('${litearm_DIR}'): a shared plugin cannot "
+      "link a non-PIC static archive. Building the sibling source tree instead.")
   endif()
   # Build the SDK as a static *PIC* library and link it into the plugin, so the plugin
   # ships self-contained: no extra liblitearm.so on LD_LIBRARY_PATH, and nothing from the
@@ -71,7 +86,23 @@ else()
   set(LITEARM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
   add_subdirectory("${LITEARM_CPP_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/litearm-cpp"
     EXCLUDE_FROM_ALL)
+  # The bare name: the SDK's namespaced alias is not ours to use here (see above).
+  set(_litearm_target litearm)
   message(STATUS "Using in-tree litearm from ${LITEARM_CPP_DIR} (static PIC, linked in)")
+elseif(_litearm_installed_static)
+  # A genuinely unrecoverable install: a static archive on CMAKE_PREFIX_PATH and no source
+  # tree anywhere to build instead.
+  message(FATAL_ERROR
+    "The installed litearm::litearm ('${litearm_DIR}') is a static library, and a shared "
+    "plugin cannot link a non-PIC static library. There is no litearm-cpp source tree at "
+    "'${LITEARM_CPP_DIR}' to build instead. Install litearm-cpp with "
+    "-DBUILD_SHARED_LIBS=ON, check litearm-cpp out beside this repository, or pass "
+    "-DLITEARM_CPP_DIR=<path to litearm-cpp>.")
+else()
+  message(FATAL_ERROR
+    "No installed litearm package was found, and the litearm-cpp source tree is not at "
+    "'${LITEARM_CPP_DIR}'. Either install litearm-cpp (cmake with -DBUILD_SHARED_LIBS=ON, "
+    "then its install step) or pass -DLITEARM_CPP_DIR=<path to litearm-cpp>.")
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -90,7 +121,7 @@ ament_target_dependencies(litearm_ros2_control
   rclcpp
   rclcpp_lifecycle
 )
-target_link_libraries(litearm_ros2_control litearm::litearm)
+target_link_libraries(litearm_ros2_control ${_litearm_target})
 
 pluginlib_export_plugin_description_file(hardware_interface litearm_ros2_control.xml)
 
@@ -127,7 +158,7 @@ if(BUILD_TESTING)
     rclcpp
     rclcpp_lifecycle
   )
-  target_link_libraries(test_litearm_system litearm_ros2_control litearm::litearm)
+  target_link_libraries(test_litearm_system litearm_ros2_control ${_litearm_target})
 endif()
 
 ament_package()
