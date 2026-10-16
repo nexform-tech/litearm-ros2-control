@@ -8,7 +8,8 @@
   through urdf/litearm.urdf.xacro in this package.
 
   Interface surface (matches the component's own documentation):
-    command: position, velocity  -> the firmware's MOVE_JS (q_ref, dq_ref)
+    command: position, velocity  -> the firmware's MOVE_JS (q_ref, dq_ref), or JOINT_FOLLOW
+                                    (q, dq, kp, kd) when `servo_command` selects it
     state:   position, velocity, effort, plus diagnostics
 
   Every <param> is fed by a xacro argument of the same name with a `litearm_`
@@ -22,6 +23,9 @@
   <xacro:arg name="litearm_disable_on_shutdown" default="false"/>
   <xacro:arg name="litearm_export_diagnostics" default="true"/>
   <xacro:arg name="litearm_reset_faults_on_configure" default="false"/>
+  <xacro:arg name="litearm_servo_command" default="move_js"/>
+  <xacro:arg name="litearm_joint_follow_kp" default="200 200 200 200 80 80 80"/>
+  <xacro:arg name="litearm_joint_follow_kd" default="3 5 3 3 1.5 1.5 1.5"/>
 
   <ros2_control name="LitearmSystem" type="system">
     <hardware>
@@ -38,6 +42,26 @@
            turns it on (litearm_control.launch.py: clear_faults:=true) so a bring-up after a
            fault is still one command. -->
       <param name="reset_faults_on_configure">$(arg litearm_reset_faults_on_configure)</param>
+
+      <!-- Which command carries each frame. `move_js` is the default and the safe one: the
+           firmware bounds the speed and holds the position envelope.
+
+           `joint_follow` sends q, dq and the two gain lists instead, and the firmware runs
+           the impedance loop (its feedforward, no tau in the frame) - and, for the whole
+           session, waives its overspeed and position envelope rules. That waiver is the
+           point and also the cost: with it, the host is the only bound on the arm, and these
+           gains are the only thing asking it to hold itself up. Know that before selecting
+           it, and do not select it to make the arm faster. -->
+      <param name="servo_command">$(arg litearm_servo_command)</param>
+
+      <!-- Read only when servo_command is joint_follow. One gain per joint, in axis order,
+           and the list has to match the arm's axis count or the component drops back to
+           move_js and says so. These defaults are the table litearm-lerobot runs this path
+           with; that file records where the numbers came from and how far they were measured.
+           ⚠ Joint 2's kd = 5.0 is the firmware's MIT_KD_MAX - at the ceiling, so a larger
+           value is clamped rather than refused. -->
+      <param name="joint_follow_kp">$(arg litearm_joint_follow_kp)</param>
+      <param name="joint_follow_kd">$(arg litearm_joint_follow_kd)</param>
     </hardware>
 
     <!-- The joint names must be joint1..jointN, one per axis: the name is the

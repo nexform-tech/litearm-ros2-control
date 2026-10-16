@@ -158,8 +158,8 @@ Every parameter is optional:
 | `disable_on_shutdown` | `false` | Leave the motors enabled on shutdown, so the firmware holds the pose. `true` loses force and the arm drops. |
 | `enable_attempts` | `12` | Retries for `enable()`. The SDK sleeps 300 ms between them, and only retryable codes consume an attempt. |
 | `servo_command` | `move_js` | Which command the frames carry: `move_js` (target position plus a slew ceiling) or `joint_follow`. See below. |
-| `joint_follow_kp` | `15 15 10 10 5 5 3` | Stiffness per joint, only read when `servo_command` is `joint_follow`. |
-| `joint_follow_kd` | `2 2 1.5 1.5 0.8 0.8 0.5` | Damping per joint, same condition. |
+| `joint_follow_kp` | `200 200 200 200 80 80 80` | Stiffness per joint, only read when `servo_command` is `joint_follow`. |
+| `joint_follow_kd` | `3 5 3 3 1.5 1.5 1.5` | Damping per joint, same condition. Joint 2's 5.0 is the firmware's `MIT_KD_MAX`. |
 
 `servo_command:=joint_follow` sends `q`, `dq`, a stiffness and a damping per joint, and lets
 the firmware compute the feedforward (gravity and the joint limit wall) itself. **The

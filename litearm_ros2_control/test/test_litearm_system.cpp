@@ -505,10 +505,10 @@ TEST(LitearmSystemServoCommand, JointFollowSendsTheReferencesAndTheDefaultGains)
   const auto frame = last_frame(sys, litearm::proto::CMD_JOINT_FOLLOW, 4u * count);
   ASSERT_EQ(frame.size(), 4u * count);
 
-  // The gains are the reference implementation's defaults, pinned here as literals rather
-  // than read from the implementation: a test that asks the code what it does is not a test.
-  const std::vector<double> expected_kp = {15.0, 15.0, 10.0, 10.0, 5.0, 5.0, 3.0};
-  const std::vector<double> expected_kd = {2.0, 2.0, 1.5, 1.5, 0.8, 0.8, 0.5};
+  // The gains are the litearm-lerobot table, pinned here as literals rather than read from
+  // the implementation: a test that asks the code what it does is not a test.
+  const std::vector<double> expected_kp = {200.0, 200.0, 200.0, 200.0, 80.0, 80.0, 80.0};
+  const std::vector<double> expected_kd = {3.0, 5.0, 3.0, 3.0, 1.5, 1.5, 1.5};
   for (std::size_t i = 0; i < count; ++i)
   {
     // No controller wrote a command, so this frame is a hold: q is the measurement, dq is 0.

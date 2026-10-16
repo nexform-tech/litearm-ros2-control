@@ -147,8 +147,8 @@ colcon build --cmake-args -DLITEARM_CPP_DIR=/path/to/litearm-cpp
 | `disable_on_shutdown` | `false` | 关闭时保持电机使能，由固件维持姿态。设为 `true` 会失去力，机械臂会掉下来。 |
 | `enable_attempts` | `12` | `enable()` 的重试次数。SDK 每次重试之间睡 300 ms，且只有可重试的错误码才消耗次数。 |
 | `servo_command` | `move_js` | 帧里带哪条命令：`move_js`（目标位置 + 斜坡上限）或 `joint_follow`。见下。 |
-| `joint_follow_kp` | `15 15 10 10 5 5 3` | 逐关节刚度，仅在 `servo_command` 为 `joint_follow` 时读取。 |
-| `joint_follow_kd` | `2 2 1.5 1.5 0.8 0.8 0.5` | 逐关节阻尼，条件同上。 |
+| `joint_follow_kp` | `200 200 200 200 80 80 80` | 逐关节刚度，仅在 `servo_command` 为 `joint_follow` 时读取。 |
+| `joint_follow_kd` | `3 5 3 3 1.5 1.5 1.5` | 逐关节阻尼，条件同上。J2 的 5.0 是固件上限 `MIT_KD_MAX`。 |
 
 `servo_command:=joint_follow` 每帧发 `q`、`dq`、逐关节的刚度和阻尼，前馈（重力与关节限位墙）由
 **固件自己每拍算**。**固件会为整个会话豁免它的超速与位置包络规则**，于是**上位机成为臂唯一的界**

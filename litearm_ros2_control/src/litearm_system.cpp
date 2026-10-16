@@ -46,14 +46,25 @@ constexpr int kWriteFailureLimit = 50;
 /// seconds and is three orders of magnitude below anything an operator can see.
 constexpr double kHoldVelocityFloor = 1.0e-3;
 
-/// Joint_follow gains, taken from the reference implementation's defaults
-/// (`control/joint_follow.py` in the Python SDK: DEFAULT_K / DEFAULT_B). They are what this
-/// arm has been run on, so a rig with no opinion behaves like the one that has one. They are
-/// per joint and per joint count: a rig whose joint count differs has to say so, which is
-/// why a mismatch turns the joint_follow path off rather than being carried into a command
-/// the SDK would refuse every tick.
-const std::vector<double> kDefaultJointFollowKp = {15.0, 15.0, 10.0, 10.0, 5.0, 5.0, 3.0};
-const std::vector<double> kDefaultJointFollowKd = {2.0, 2.0, 1.5, 1.5, 0.8, 0.8, 0.5};
+/// Joint_follow gains, from the one gain table in this workspace that has run this path on
+/// real hardware (`DEFAULT_K_P` / `DEFAULT_K_D` in litearm-lerobot's `servo.py`, taken there
+/// from liteteleop's `SETUP_K` / `SETUP_B`).
+///
+/// They are what the arm holds itself up with and what resists a hand, so they are the whole
+/// of the feel of this path: on joint_follow the firmware's PD loop uses these, while move_js
+/// runs on the firmware's own factory gains that a host cannot set.
+///
+/// Two properties of the numbers to keep in mind before scaling them. Joint 2's `kd` is 5.0,
+/// which is the firmware's `MIT_KD_MAX`: it sits *at* the ceiling, so anything above it is
+/// silently clamped rather than rejected. And the wrist pair 80 / 1.5 is between the
+/// firmware's factory `mit_kp` of 50 and the stiffest value anyone has run here, so this is a
+/// reading on a scale, not the one right answer.
+///
+/// Per joint and per joint count: a rig whose joint count differs has to say so, which is why
+/// a mismatch turns the joint_follow path off rather than being carried into a command the SDK
+/// would refuse every tick.
+const std::vector<double> kDefaultJointFollowKp = {200.0, 200.0, 200.0, 200.0, 80.0, 80.0, 80.0};
+const std::vector<double> kDefaultJointFollowKd = {3.0, 5.0, 3.0, 3.0, 1.5, 1.5, 1.5};
 
 /// Numbers from a space or comma separated list. Empty when an entry is not a number.
 std::vector<double> parse_double_list(const std::string & raw)
