@@ -90,9 +90,6 @@ sudo usermod -aG dialout $USER      # 重新登录后生效
     └── litearm_ros2_control/ # 插件
 ```
 
-同一个工作区里只保留一份机械臂描述：litearm-stm32 固件仓自带一个同名功能的 `litearm` URDF 包，
-两份描述同时在会让 launch 解析到哪一份变得不确定。
-
 ```bash
 source /opt/ros/humble/setup.bash
 cd ~/litearm_ws

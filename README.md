@@ -97,10 +97,6 @@ package is already on `CMAKE_PREFIX_PATH`:
     └── litearm_ros2_control/ # the plugin
 ```
 
-Keep a single arm description in the workspace: the litearm-stm32 firmware repository ships its own
-`litearm` URDF package, and two arm descriptions in one workspace make it ambiguous which one a
-launch resolves.
-
 ```bash
 source /opt/ros/humble/setup.bash
 cd ~/litearm_ws
