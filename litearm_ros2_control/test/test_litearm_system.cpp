@@ -234,7 +234,11 @@ TEST(LitearmSystemLifecycle, FullRunAgainstFakeFirmware)
   for (std::size_t i = 0; i < measured.size(); ++i)
   {
     EXPECT_NEAR(frame[i], measured[i], 1e-6) << "q_ref axis " << i;
-    EXPECT_DOUBLE_EQ(frame[measured.size() + i], 0.0) << "dq_ref axis " << i;
+    // Not zero: a hold carries the floor, because dq all zero is the first condition of the
+    // firmware gate that refuses a frame and starves the watchdog. See
+    // ZeroVelocityFrameCarriesTheMeasuredPosition for the whole of it.
+    EXPECT_GT(frame[measured.size() + i], 0.0) << "dq_ref axis " << i;
+    EXPECT_LE(frame[measured.size() + i], 1e-2) << "dq_ref axis " << i;
   }
 
   ASSERT_EQ(sys.on_deactivate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
@@ -345,10 +349,17 @@ TEST(LitearmSystemLifecycle, RetriesTheSeedFrameAfterARefusal)
 
 TEST(LitearmSystemLifecycle, ZeroVelocityFrameCarriesTheMeasuredPosition)
 {
-  // Firmware gate (2026-09-24): a MOVE_JS frame with dq all zero and a target more than
-  // JS_ZERO_DQ_EPS (5 mrad) from the measurement is rejected whole with ERR{0x03,0x02}.
-  // Under dq=0 the firmware freezes its own reference and ignores the position field, so
-  // the frame must carry the measurement instead of the unreachable target.
+  // The command is a hold - every velocity zero - and the target is 1 rad from the
+  // measurement, far beyond the firmware's 5 mrad gate. Two things have to be true of the
+  // frame that goes out.
+  //
+  // The position has to be the measurement rather than the unreachable target, because a
+  // target the arm is not at is a target the firmware would slew towards.
+  //
+  // And the velocity must NOT be zero. The gate refuses a frame whose dq is all zero when
+  // the target is that far off, with ERR{0x03,0x02}, and a refused frame does not feed the
+  // watchdog: the hold becomes a stall, which is the stutter this floor exists to remove.
+  // A frame with any non zero dq is not a candidate for the gate at all.
   const std::vector<double> measured{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7};
   TestSystem sys(measured);
   const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
@@ -370,8 +381,211 @@ TEST(LitearmSystemLifecycle, ZeroVelocityFrameCarriesTheMeasuredPosition)
   for (std::size_t i = 0; i < measured.size(); ++i)
   {
     EXPECT_NEAR(frame[i], measured[i], 1e-6) << "q_ref axis " << i;
-    EXPECT_DOUBLE_EQ(frame[measured.size() + i], 0.0) << "dq_ref axis " << i;
+    EXPECT_GT(frame[measured.size() + i], 0.0)
+      << "dq_ref axis " << i << " is zero, which makes this frame refusable by the gate";
+    EXPECT_LE(frame[measured.size() + i], 1e-2)
+      << "dq_ref axis " << i << " is large enough to be a movement rather than a hold";
   }
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemWrite, RefusesACommandTheWireWouldNotCarry)
+{
+  // `move_js` narrows every value to f32 on the way out (`static_cast<float>` in
+  // proto::pack_f32s), so a finite double above FLT_MAX arrives as an infinity. A guard
+  // written in terms of doubles passes it, and the firmware then answers ERR{0x03,0x02},
+  // which says neither which axis nor what the value was - the frame has to be stopped
+  // here instead, and the refusal has to name both.
+  const std::vector<double> measured(7, 0.0);
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  auto command = sys.export_command_interfaces();
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  // Both of these are true at once, and a check that only makes the first one fails on the
+  // second: that pair is the whole reason this test exists.
+  const double too_big = 1e39;
+  ASSERT_TRUE(std::isfinite(too_big));
+  ASSERT_FALSE(std::isfinite(static_cast<float>(too_big)));
+
+  // On the velocity, because a frame whose velocities are all zero has its positions
+  // replaced with the measurement - which would hide the value being tested.
+  command[2u * 3u + 1u].set_value(too_big);
+
+  const auto before = sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).size();
+  EXPECT_EQ(sys.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+  EXPECT_EQ(sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).size(), before)
+    << "a frame the wire would not carry was sent anyway";
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemWrite, RefusesANonFiniteCommandBeforeTheWire)
+{
+  // The other half of the same guard: a value that is already non-finite here, which is a
+  // bug in this process or in the status frame rather than a number that is merely too
+  // large. Both are refused, and the message says which of the two it is, because that is
+  // the question the next person has to answer.
+  const std::vector<double> measured(7, 0.0);
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  auto command = sys.export_command_interfaces();
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  command[2u * 5u + 1u].set_value(std::numeric_limits<double>::quiet_NaN());
+
+  const auto before = sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).size();
+  EXPECT_EQ(sys.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+  EXPECT_EQ(sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).size(), before);
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+/// Payload of the last frame of this command, as f32 values. Empty when the size is wrong.
+std::vector<double> last_frame(
+  const TestSystem & sys, uint8_t command, std::size_t expected)
+{
+  std::vector<uint8_t> payload;
+  for (const auto & entry : sys.fake()->tx_snapshot())
+  {
+    if (entry.first == command)
+    {
+      payload = entry.second;
+    }
+  }
+  if (payload.size() != expected * sizeof(float))
+  {
+    return {};
+  }
+  return litearm::proto::unpack_f32s(payload.data(), 0, expected);
+}
+
+TEST(LitearmSystemServoCommand, DefaultsToMoveJs)
+{
+  // The default has to stay move_js. joint_follow has the firmware waive its overspeed and
+  // position envelope rules for the session, and that is not something a rig should acquire
+  // by not saying anything about it.
+  const std::vector<double> measured(7, 0.1);
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  EXPECT_FALSE(sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).empty());
+  EXPECT_TRUE(sys.fake()->stamps_of(litearm::proto::CMD_JOINT_FOLLOW).empty());
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemServoCommand, JointFollowSendsTheReferencesAndTheDefaultGains)
+{
+  const std::vector<double> measured(7, 0.1);
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"},
+                                               {"servo_command", "joint_follow"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  const std::size_t count = measured.size();
+  const auto frame = last_frame(sys, litearm::proto::CMD_JOINT_FOLLOW, 4u * count);
+  ASSERT_EQ(frame.size(), 4u * count);
+
+  // The gains are the litearm-lerobot table, pinned here as literals rather than read from
+  // the implementation: a test that asks the code what it does is not a test.
+  const std::vector<double> expected_kp = {200.0, 200.0, 200.0, 200.0, 80.0, 80.0, 80.0};
+  const std::vector<double> expected_kd = {3.0, 5.0, 3.0, 3.0, 1.5, 1.5, 1.5};
+  for (std::size_t i = 0; i < count; ++i)
+  {
+    // No controller wrote a command, so this frame is a hold: q is the measurement, dq is 0.
+    EXPECT_NEAR(frame[i], measured[i], 1e-6) << "q_ref joint " << i + 1;
+    EXPECT_DOUBLE_EQ(frame[count + i], 0.0) << "dq_ref joint " << i + 1;
+    // The gains travel as f32, so a gain like 0.8 comes back as 0.80000001 and comparing at
+    // double precision would fail on the wire's rounding rather than on the value.
+    EXPECT_NEAR(frame[2u * count + i], expected_kp[i], 1e-6) << "kp joint " << i + 1;
+    EXPECT_NEAR(frame[3u * count + i], expected_kd[i], 1e-6) << "kd joint " << i + 1;
+  }
+
+  // And move_js was not also sent: the frame carries one command, not both.
+  EXPECT_TRUE(sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).empty());
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemServoCommand, JointFollowGainsCanBeOverridden)
+{
+  const std::vector<double> measured(7, 0.1);
+  TestSystem sys(measured);
+  const auto info = make_info(
+    seven_joints(),
+    {{"port", "fake"}, {"auto_enable", "false"}, {"servo_command", "joint_follow"},
+     {"joint_follow_kp", "20, 20, 10, 10, 5, 5, 3"}, {"joint_follow_kd", "3 3 1 1 1 1 1"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  const std::size_t count = measured.size();
+  const auto frame = last_frame(sys, litearm::proto::CMD_JOINT_FOLLOW, 4u * count);
+  ASSERT_EQ(frame.size(), 4u * count);
+  // A comma separated list and a space separated one both work, because an operator writing
+  // either of them means the same thing.
+  EXPECT_NEAR(frame[2u * count], 20.0, 1e-6);
+  EXPECT_NEAR(frame[3u * count + 6u], 1.0, 1e-6);
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemServoCommand, GainsThatDoNotFitTheArmFallBackToMoveJs)
+{
+  // A gain list of the wrong length would make every frame a command the SDK refuses, so it
+  // turns the mode off instead of being carried into the stream.
+  const std::vector<double> measured(7, 0.1);
+  TestSystem sys(measured);
+  const auto info = make_info(
+    seven_joints(),
+    {{"port", "fake"}, {"auto_enable", "false"}, {"servo_command", "joint_follow"},
+     {"joint_follow_kp", "1 2 3"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  EXPECT_TRUE(sys.fake()->stamps_of(litearm::proto::CMD_JOINT_FOLLOW).empty());
+  EXPECT_FALSE(sys.fake()->stamps_of(litearm::proto::CMD_MOVE_JS).empty());
+
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemServoCommand, TheModeIsMatchedCaseInsensitively)
+{
+  const std::vector<double> measured(7, 0.1);
+  TestSystem sys(measured);
+  const auto info = make_info(seven_joints(), {{"port", "fake"}, {"auto_enable", "false"},
+                                               {"servo_command", "Joint_Follow"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_activate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+
+  // Matched case insensitively, the same as every other boolean-ish parameter here.
+  EXPECT_FALSE(sys.fake()->stamps_of(litearm::proto::CMD_JOINT_FOLLOW).empty());
 
   ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
 }

@@ -158,6 +158,24 @@ Every parameter is optional:
 | `auto_enable` | `true` | Enable the motors in `on_activate`. Set `false` to control enablement yourself. |
 | `disable_on_shutdown` | `false` | Leave the motors enabled on shutdown, so the firmware holds the pose. `true` loses force and the arm drops. |
 | `enable_attempts` | `12` | Retries for `enable()`. The SDK sleeps 300 ms between them, and only retryable codes consume an attempt. |
+| `servo_command` | `move_js` | Which command the frames carry: `move_js` (target position plus a slew ceiling) or `joint_follow`. See below. |
+| `joint_follow_kp` | `200 200 200 200 80 80 80` | Stiffness per joint, only read when `servo_command` is `joint_follow`. |
+| `joint_follow_kd` | `3 5 3 3 1.5 1.5 1.5` | Damping per joint, same condition. Joint 2's 5.0 is the firmware's `MIT_KD_MAX`. |
+
+`servo_command:=joint_follow` sends `q`, `dq`, a stiffness and a damping per joint, and lets
+the firmware compute the feedforward (gravity and the joint limit wall) itself. **The
+firmware waives its overspeed and position envelope rules for the whole session**, so the
+host becomes the only bound on the arm — that is what the mode is for, and it is why it is
+not the default. It warns at startup, with the gains, every time it is selected.
+
+Do not reach for it to make the arm faster. Reach for it when something upstream needs to
+move the arm at a rate the envelope refuses, and only with the host's own limits in place.
+
+The gain lists are per joint and per joint count: a list whose length does not match the arm
+turns the mode off and falls back to `move_js`, rather than sending a command the SDK would
+refuse on every tick. The defaults are `DEFAULT_K_P` / `DEFAULT_K_D` from litearm-lerobot's
+`servo.py` — the one gain table in this workspace that has run this path on real hardware,
+taken there from liteteleop's `SETUP_K` / `SETUP_B`.
 
 A minimal controller set, using the standard controllers this package depends on:
 

@@ -147,6 +147,21 @@ colcon build --cmake-args -DLITEARM_CPP_DIR=/path/to/litearm-cpp
 | `auto_enable` | `true` | 在 `on_activate` 里使能电机。设为 `false` 可自行控制使能时机。 |
 | `disable_on_shutdown` | `false` | 关闭时保持电机使能，由固件维持姿态。设为 `true` 会失去力，机械臂会掉下来。 |
 | `enable_attempts` | `12` | `enable()` 的重试次数。SDK 每次重试之间睡 300 ms，且只有可重试的错误码才消耗次数。 |
+| `servo_command` | `move_js` | 帧里带哪条命令：`move_js`（目标位置 + 斜坡上限）或 `joint_follow`。见下。 |
+| `joint_follow_kp` | `200 200 200 200 80 80 80` | 逐关节刚度，仅在 `servo_command` 为 `joint_follow` 时读取。 |
+| `joint_follow_kd` | `3 5 3 3 1.5 1.5 1.5` | 逐关节阻尼，条件同上。J2 的 5.0 是固件上限 `MIT_KD_MAX`。 |
+
+`servo_command:=joint_follow` 每帧发 `q`、`dq`、逐关节的刚度和阻尼，前馈（重力与关节限位墙）由
+**固件自己每拍算**。**固件会为整个会话豁免它的超速与位置包络规则**，于是**上位机成为臂唯一的界**
+—— 这正是这个模式的用途，也是它不做默认值的原因。每次选中它都会在启动时告警，并把增益打出来。
+
+**不要为了"让臂更快"用它。** 只有在某种上游确实需要以包络拒绝的速度运动时才用，而且必须配好主机
+自己的限制。
+
+增益列表是**逐关节且与关节数绑定**的：长度与关节数不符时该模式会被关掉并退回 `move_js`，而不是
+每拍发一条 SDK 会拒绝的命令。默认值取自 litearm-lerobot `servo.py` 里的
+`DEFAULT_K_P` / `DEFAULT_K_D` —— 这是本工作区里唯一在真机上跑过这条通路的增益表，源头是
+liteteleop 的 `SETUP_K` / `SETUP_B`。
 
 一套最小的控制器配置，用的是本包依赖的标准控制器：
 
