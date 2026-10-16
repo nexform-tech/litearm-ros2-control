@@ -111,6 +111,30 @@ colcon build --cmake-args -DLITEARM_CPP_DIR=/path/to/litearm-cpp
 自包含的。若已安装的 `litearm` 是非 PIC 静态库，构建会以一条解释性错误失败，而不是留到链接期 —— 用
 `-DBUILD_SHARED_LIBS=ON` 重装 SDK，或者删掉它、让本包改用同级源码树。
 
+## 运行
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 launch litearm_ros2_control litearm_control.launch.py
+```
+
+它会拉起 `robot_state_publisher`，再拉起带 `LitearmSystem` 组件的 `controller_manager`，然后启动并
+激活 `joint_state_broadcaster` 与 `joint_trajectory_controller`。启动过程会打开机械臂的 USB 链路并
+使能电机，所以**它会动真机**：请托住臂，把急停放在手边。
+
+这条 launch 把 ROS 域钉在 42 并开启仅本机发现，所以没有导出同样变量的终端什么都看不到：
+
+```bash
+export ROS_DOMAIN_ID=42; export ROS_LOCALHOST_ONLY=1
+```
+
+接多块板卡时传 `port:=/dev/ttyACM1`；留空（默认）按 `VID:PID 1d50:606f` 自动发现。其余 launch 参数、
+串口自检和一条可直接粘贴的轨迹见 [docs/quickstart.zh-CN.md](docs/quickstart.zh-CN.md)。
+
+要驱动机械臂，就往 `/joint_trajectory_controller/follow_joint_trajectory` 发轨迹，或者在 MoveIt 2 里
+规划、由 `move_group` 执行。
+
 ## 使用
 
 在 URDF 的 `<ros2_control>` 块里声明该组件。关节名必须是 `joint1..jointN`，每个轴一个，且 N 必须
