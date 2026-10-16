@@ -2,7 +2,7 @@
 <!--
   litearm.urdf.xacro — the full robot description for the direct-USB stack.
 
-  The kinematics live in the description package (`litearm`); this file includes
+  The kinematics live in the description package (`litearm_description`); this file includes
   it and appends the <ros2_control> declaration. Change the robot only in the
   description package.
 
