@@ -193,6 +193,9 @@ arm_controller:
       - velocity
 ```
 
+`arm_controller` 这个名字是随手取的。本包随附的 `config/litearm_controllers.yaml` 把这个控制器叫作
+`joint_trajectory_controller`，`litearm_control.launch.py` 加载的也是那个名字——按名字寻址控制器时用后者。
+
 ## 流式发送约定
 
 固件的指令看门狗在 100 ms 收不到指令后跳闸，所以 `write()` 必须持续重发。controller manager 的

@@ -207,6 +207,10 @@ arm_controller:
       - velocity
 ```
 
+The name `arm_controller` is arbitrary. The configuration this package ships,
+`config/litearm_controllers.yaml`, calls that controller `joint_trajectory_controller`, and that is
+the name `litearm_control.launch.py` loads — use it when you address the controller by name.
+
 ## Streaming contract
 
 The firmware trips a command watchdog after 100 ms without a command, so `write()` has to keep
