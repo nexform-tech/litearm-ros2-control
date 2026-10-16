@@ -374,7 +374,25 @@ ros2 action send_goal /joint_trajectory_controller/follow_joint_trajectory \
         time_from_start: {sec: 5, nanosec: 0}" --feedback
 ```
 
-Inside the container, run that in `docker exec -it litearm-control bash` after exporting the domain.
+In the container track, this is that command with everything around it, so there is nothing to set up
+first — paste it into any host terminal while the stack is running:
+
+```bash
+docker exec -it litearm-control bash -lc '
+  source /opt/ros/humble/setup.bash
+  source /ws/install/setup.bash
+  export ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1
+  ros2 action send_goal /joint_trajectory_controller/follow_joint_trajectory \
+    control_msgs/action/FollowJointTrajectory \
+"trajectory:
+  joint_names: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+  points:
+    - positions: [0.0, 0.0, 0.0, -1.5708, 0.0, 0.0, 0.0]
+      time_from_start: {sec: 5, nanosec: 0}" --feedback'
+```
+
+The YAML starts at the left margin inside the quotes. Keep it there: its indentation is relative to
+`trajectory`, and re-indenting it to line up with the `ros2` line above breaks the parse.
 
 **Do not wrap the goal in braces.** The help text shows `'{order: 10}'`, which is a single-line flow
 mapping; mixing it with block-style keys below fails to parse:

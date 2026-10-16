@@ -356,7 +356,25 @@ ros2 action send_goal /joint_trajectory_controller/follow_joint_trajectory \
         time_from_start: {sec: 5, nanosec: 0}" --feedback
 ```
 
-容器路径下，先进 `docker exec -it litearm-control bash`，导出域之后再跑这段。
+容器路径下，把周边都补上的完整命令就是下面这条——不用先做任何准备，栈还跑着的时候直接粘进任意一个宿主机
+终端即可：
+
+```bash
+docker exec -it litearm-control bash -lc '
+  source /opt/ros/humble/setup.bash
+  source /ws/install/setup.bash
+  export ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1
+  ros2 action send_goal /joint_trajectory_controller/follow_joint_trajectory \
+    control_msgs/action/FollowJointTrajectory \
+"trajectory:
+  joint_names: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+  points:
+    - positions: [0.0, 0.0, 0.0, -1.5708, 0.0, 0.0, 0.0]
+      time_from_start: {sec: 5, nanosec: 0}" --feedback'
+```
+
+YAML 从引号后面顶格开始。请保持顶格：它的缩进是相对 `trajectory` 算的，为了和上面那行 `ros2` 对齐而
+往里推，解析就会失败。
 
 **不要给 goal 套外层花括号。** 帮助文本里的 `'{order: 10}'` 是单行 flow 映射；把它和下面的块式键混在
 一起会解析失败：
