@@ -117,6 +117,34 @@ the installed plugin is self-contained. An installed `litearm` that is a non-PIC
 makes the build fail with an explanatory error rather than a link error — reinstall the SDK with
 `-DBUILD_SHARED_LIBS=ON`, or delete it and let this package use the sibling tree.
 
+## Run
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 launch litearm_ros2_control litearm_control.launch.py
+```
+
+That starts `robot_state_publisher`, then `controller_manager` with the `LitearmSystem` component,
+then spawns and activates `joint_state_broadcaster` and `joint_trajectory_controller`. Bring-up opens
+the arm's USB link and enables the motors, so **it moves real hardware**: support the arm and keep
+the emergency stop within reach.
+
+The launch pins the ROS domain to 42 and enables localhost-only discovery, so a shell that has not
+exported the same settings sees nothing:
+
+```bash
+export ROS_DOMAIN_ID=42; export ROS_LOCALHOST_ONLY=1
+```
+
+Pass `port:=/dev/ttyACM1` when several boards are attached; empty, the default, auto-discovers by
+`VID:PID 1d50:606f`. The remaining launch arguments, the serial-port preflight and a copy-pasteable
+trajectory are in [docs/quickstart.md](docs/quickstart.md).
+
+To drive the arm, send a trajectory to
+`/joint_trajectory_controller/follow_joint_trajectory`, or plan in MoveIt 2 and let `move_group`
+execute it.
+
 ## Usage
 
 Declare the component in the URDF's `<ros2_control>` block. The joint names must be `joint1..jointN`,
@@ -202,6 +230,10 @@ arm_controller:
       - position
       - velocity
 ```
+
+The name `arm_controller` is arbitrary. The configuration this package ships,
+`config/litearm_controllers.yaml`, calls that controller `joint_trajectory_controller`, and that is
+the name `litearm_control.launch.py` loads — use it when you address the controller by name.
 
 ## Streaming contract
 
