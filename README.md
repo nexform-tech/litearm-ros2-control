@@ -78,6 +78,10 @@ Opt-in diagnostic state interfaces, exported on every joint when
 Firmware older than 1.5.0 is rejected at connect time: the plugin depends on the 6+21N status frame
 layout, the `joint_fault` field, and the enabled bit that 1.5.0 introduced.
 
+Factory test firmware carries a `-test-` marker (`Litearm<major.minor.patch>-test-7J`). It connects
+and runs, but configure logs a warning: its behavior may differ from a release build, so flash a
+release firmware before production use.
+
 On Linux, grant yourself serial port access:
 
 ```bash

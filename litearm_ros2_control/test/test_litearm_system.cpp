@@ -60,8 +60,9 @@ private:
 class TestSystem : public LitearmSystem
 {
 public:
-  explicit TestSystem(std::vector<double> initial_q)
-  : initial_q_(std::move(initial_q)) {}
+  explicit TestSystem(
+    std::vector<double> initial_q, std::string firmware = "Litearm1.7.0-7J")
+  : initial_q_(std::move(initial_q)), firmware_(std::move(firmware)) {}
 
   std::shared_ptr<litearm::testing::FakeTransport> fake() const { return fake_; }
 
@@ -71,7 +72,7 @@ protected:
     litearm::ArmOptions opts = options;
     opts.port = std::string("fake");
     auto shared = std::make_shared<litearm::testing::FakeTransport>(
-      "fake", 0.2, "Litearm1.7.0-7J", static_cast<int>(initial_q_.size()));
+      "fake", 0.2, firmware_, static_cast<int>(initial_q_.size()));
     shared->set_q(initial_q_);
     fake_ = shared;
     opts.transport_factory =
@@ -83,6 +84,7 @@ protected:
 
 private:
   std::vector<double> initial_q_;
+  std::string firmware_;
   std::shared_ptr<litearm::testing::FakeTransport> fake_;
 };
 
@@ -242,6 +244,26 @@ TEST(LitearmSystemLifecycle, FullRunAgainstFakeFirmware)
   }
 
   ASSERT_EQ(sys.on_deactivate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+}
+
+TEST(LitearmSystemLifecycle, WarnsOnATestFirmwareBuildButStillConfigures)
+{
+  // Factory test images mark the version with "-test-". The SDK accepts them (same 7-joint
+  // protocol), so configure must not fail; the operator, however, has to be told that a test
+  // image is not a release firmware.
+  TestSystem sys(std::vector<double>(7, 0.1), "Litearm1.13.0-test-7J");
+  const auto info = make_info(seven_joints(), {{"port", "fake"}});
+
+  ASSERT_EQ(sys.on_init(info), CallbackReturn::SUCCESS);
+  testing::internal::CaptureStderr();
+  const auto result = sys.on_configure(rclcpp_lifecycle::State());
+  const std::string log = testing::internal::GetCapturedStderr();
+
+  ASSERT_EQ(result, CallbackReturn::SUCCESS);
+  EXPECT_NE(log.find("TEST firmware build"), std::string::npos) << log;
+  EXPECT_NE(log.find("Litearm1.13.0-test-7J"), std::string::npos) << log;
+
   ASSERT_EQ(sys.on_cleanup(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
 }
 

@@ -356,6 +356,16 @@ hardware_interface::CallbackReturn LitearmSystem::on_configure(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
+  // Test builds carry a "-test-" marker in the version string (e.g. Litearm1.13.0-test-7J).
+  // The SDK accepts them (same 7-joint protocol), but their behavior may differ from a release
+  // build -- say so rather than letting the operator assume this is a shipping firmware.
+  if (arm_->firmware().find("-test-") != std::string::npos)
+  {
+    RCLCPP_WARN(
+      logger_, "Connected to a TEST firmware build (%s): behavior may differ from a release "
+      "build. Flash a release firmware before production use.", arm_->firmware().c_str());
+  }
+
   if (reset_faults_on_configure_)
   {
     // A latched EMERGENCY / joint_fault makes the firmware refuse ENABLE, which used to
