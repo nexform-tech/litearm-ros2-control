@@ -132,6 +132,44 @@ export ROS_DOMAIN_ID=42; export ROS_LOCALHOST_ONLY=1
 要驱动机械臂，就往 `/joint_trajectory_controller/follow_joint_trajectory` 发轨迹，或者在 MoveIt 2 里
 规划、由 `move_group` 执行。
 
+### 双臂 / side 模式
+
+同一个 launch 也支持把控制栈跑在 `/<side>` 命名空间下，供双臂部署使用：
+
+```bash
+# 左臂
+ros2 launch litearm_ros2_control litearm_control.launch.py \
+  side:=left \
+  port:=/dev/serial/by-id/<left-arm>
+
+# 右臂（另一个终端）
+ros2 launch litearm_ros2_control litearm_control.launch.py \
+  side:=right \
+  port:=/dev/serial/by-id/<right-arm>
+```
+
+接口变化：
+
+| 接口 | 单臂（`side` 留空） | `side:=left` |
+| --- | --- | --- |
+| controller manager | `/controller_manager` | `/left/controller_manager` |
+| 关节状态 | `/joint_states` | `/left/joint_states` |
+| JTC action | `/joint_trajectory_controller/...` | `/left/joint_trajectory_controller/...` |
+| `robot_state_publisher` | 默认启动 | `auto` 下**不启动** |
+
+要点：
+
+- **两侧必须使用同一个 `ROS_DOMAIN_ID` / `ROS_LOCALHOST_ONLY`**，本 launch 默认钉在 42 / 本机。
+- **两个 USB 口必须不同**，优先使用 `/dev/serial/by-id/`，不要假设 `/dev/ttyACM0/1`。
+- side 模式下 `robot_state_publisher` 默认不启动；双臂部署应由共享的双臂模型统一发布 TF。
+  如果一侧手动设 `start_robot_state_publisher:=true`，两个实例会发布重复的 `base_link` / `joint*`
+  TF，通常不是想要的结果。
+- side 模式会为每个实例生成一份带命名空间的控制器参数临时文件；源配置仍是
+  `config/litearm_controllers.yaml`。
+- 留空 `side` 时保持原来的单臂根命名空间行为不变。
+- 双臂 MoveIt 侧见 `litearm_dual_arm` 包；它的 bridge 默认上游就是
+  `/<side>/joint_trajectory_controller/follow_joint_trajectory`。
+
 ## 使用
 
 在 URDF 的 `<ros2_control>` 块里声明该组件。关节名必须是 `joint1..jointN`，每个轴一个，且 N 必须

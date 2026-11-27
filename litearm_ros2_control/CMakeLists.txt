@@ -152,6 +152,7 @@ ament_export_targets(export_${PROJECT_NAME})
 # ─────────────────────────────────────────────────────────────────────────────
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
   ament_add_gtest(test_litearm_system test/test_litearm_system.cpp)
   ament_target_dependencies(test_litearm_system
     hardware_interface
@@ -159,6 +160,20 @@ if(BUILD_TESTING)
     rclcpp_lifecycle
   )
   target_link_libraries(test_litearm_system litearm_ros2_control ${_litearm_target})
+
+  # The default python3 may be conda 3.11 while Humble's launch_ros/rclpy use
+  # the Python 3.10 ABI, so prefer the system interpreter under /usr/bin.
+  # pytest 9.x is not compatible with Humble's launch_testing entry points, so
+  # these pure-Python tests disable entry-point autoload.
+  find_program(LITEARM_PYTEST_PYTHON NAMES python3.10 python3
+    PATHS /usr/bin NO_DEFAULT_PATH)
+  if(NOT LITEARM_PYTEST_PYTHON)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(LITEARM_PYTEST_PYTHON "${Python3_EXECUTABLE}")
+  endif()
+  ament_add_pytest_test(test_control_launch test/test_control_launch.py
+    PYTHON_EXECUTABLE ${LITEARM_PYTEST_PYTHON}
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1)
 endif()
 
 ament_package()

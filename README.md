@@ -145,6 +145,45 @@ To drive the arm, send a trajectory to
 `/joint_trajectory_controller/follow_joint_trajectory`, or plan in MoveIt 2 and let `move_group`
 execute it.
 
+### Dual-arm / side mode
+
+The same launch can run the stack under a `/<side>` namespace for a dual-arm deployment:
+
+```bash
+# left arm
+ros2 launch litearm_ros2_control litearm_control.launch.py \
+  side:=left \
+  port:=/dev/serial/by-id/<left-arm>
+
+# right arm (another terminal)
+ros2 launch litearm_ros2_control litearm_control.launch.py \
+  side:=right \
+  port:=/dev/serial/by-id/<right-arm>
+```
+
+Interface changes:
+
+| Interface | Single arm (`side` empty) | `side:=left` |
+| --- | --- | --- |
+| controller manager | `/controller_manager` | `/left/controller_manager` |
+| joint states | `/joint_states` | `/left/joint_states` |
+| JTC action | `/joint_trajectory_controller/...` | `/left/joint_trajectory_controller/...` |
+| `robot_state_publisher` | started by default | **not started** under `auto` |
+
+Key points:
+
+- Both sides must use the same `ROS_DOMAIN_ID` / `ROS_LOCALHOST_ONLY`; this launch pins them
+  to 42 / localhost.
+- The two USB ports must differ. Prefer `/dev/serial/by-id/`; do not assume `/dev/ttyACM0/1`.
+- In side mode `robot_state_publisher` is off by default; a dual-arm deployment should publish TF
+  once from the combined model. Setting `start_robot_state_publisher:=true` on both sides publishes
+  duplicate `base_link` / `joint*` TF frames and is usually wrong.
+- Side mode materializes a namespaced controller parameter file per instance; the source remains
+  `config/litearm_controllers.yaml`.
+- Leaving `side` empty preserves the original single-arm root interface.
+- The dual-arm MoveIt side lives in `litearm_dual_arm`; its bridge upstream actions are
+  `/<side>/joint_trajectory_controller/follow_joint_trajectory` by default.
+
 ## Usage
 
 Declare the component in the URDF's `<ros2_control>` block. The joint names must be `joint1..jointN`,

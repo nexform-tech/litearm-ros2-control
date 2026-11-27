@@ -18,3 +18,7 @@ Testing/
 
 # OS
 .DS_Store
+
+# Python test caches
+__pycache__/
+.pytest_cache/

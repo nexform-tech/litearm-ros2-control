@@ -56,7 +56,11 @@ jobs:
             ros-humble-pluginlib \
             ros-humble-rclcpp \
             ros-humble-rclcpp-lifecycle \
-            ros-humble-ament-cmake-gtest
+            ros-humble-ament-cmake-gtest \
+            ros-humble-ament-cmake-pytest \
+            ros-humble-launch \
+            ros-humble-launch-ros \
+            python3-yaml
 
       - name: Build
         shell: bash
