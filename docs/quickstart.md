@@ -281,6 +281,8 @@ needs the URDF entry this package ships (`urdf/litearm.urdf.xacro`).
 | `clear_faults` | `true` | Clear a latched arm fault while configuring, so a bring-up after a fault is still one command. `false` lets a latched fault stop the launch. |
 | `ros_domain_id` | `42` | ROS domain of this stack. Deliberately not 0. |
 | `ros_localhost_only` | `true` | Localhost-only discovery: a second robot on the network otherwise shows up in RViz and as a second `/move_action` server. |
+| `side` | `''` | `left` / `right` places the whole stack under `/<side>`; empty keeps the single-arm root interface. |
+| `start_robot_state_publisher` | `auto` | `auto` starts RSP only when `side` is empty; a dual-arm deployment publishes TF once from the combined model. |
 
 ### Running the MoveIt stack
 
@@ -297,6 +299,24 @@ ros2 launch litearm_moveit_config litearm_moveit.launch.py start_control:=false
 The second is for a machine without a display. The third is for when the control stack is already
 running and only `move_group` and RViz are missing — **do not use it while this launch's own control
 stack is up**, because two `controller_manager`s would fight over the same command interfaces.
+
+### Dual-arm / side mode
+
+```bash
+# left arm
+ros2 launch litearm_ros2_control litearm_control.launch.py \
+  side:=left port:=/dev/serial/by-id/<left-arm>
+
+# right arm (another terminal)
+ros2 launch litearm_ros2_control litearm_control.launch.py \
+  side:=right port:=/dev/serial/by-id/<right-arm>
+```
+
+- The interfaces become `/<side>/controller_manager`, `/<side>/joint_states`, and
+  `/<side>/joint_trajectory_controller/...`.
+- Both instances must share a domain and use different USB ports; `robot_state_publisher` is off in
+  side mode by default, and the combined dual-arm model publishes TF once.
+- The dual-arm MoveIt side lives in `litearm_dual_arm`.
 
 ## Seeing the stack from another terminal
 

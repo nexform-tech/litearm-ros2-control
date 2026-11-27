@@ -269,6 +269,8 @@ ros2 launch litearm_ros2_control litearm_control.launch.py
 | `clear_faults` | `true` | 配置时清一次锁存故障，使"故障之后"仍然是一条命令。`false` 让锁存故障拦住启动。 |
 | `ros_domain_id` | `42` | 本栈的 ROS 域，刻意避开 0。 |
 | `ros_localhost_only` | `true` | 只在本机发现：否则同网段第二台机器人会出现在 RViz 里，并多出一个 `/move_action` 服务端。 |
+| `side` | `''` | `left` / `right` 时把整个栈放到 `/<side>` 命名空间；空保持单臂根接口。 |
+| `start_robot_state_publisher` | `auto` | `auto` 只在 `side` 为空时启动 RSP；双臂部署由共享模型统一发布 TF。 |
 
 ### 启动 MoveIt 栈
 
@@ -283,6 +285,24 @@ ros2 launch litearm_moveit_config litearm_moveit.launch.py start_control:=false
 
 第二条用于无显示环境。第三条用于控制栈已经在跑、只缺 `move_group` 与 RViz 的场合——**不要在本条 launch
 自己的控制栈还活着的时候用它**，两个 `controller_manager` 会抢同一批命令接口。
+
+### 双臂 / side 模式
+
+```bash
+# 左臂
+ros2 launch litearm_ros2_control litearm_control.launch.py \
+  side:=left port:=/dev/serial/by-id/<left-arm>
+
+# 右臂（另一个终端）
+ros2 launch litearm_ros2_control litearm_control.launch.py \
+  side:=right port:=/dev/serial/by-id/<right-arm>
+```
+
+- 接口变成 `/<side>/controller_manager`、`/<side>/joint_states`、
+  `/<side>/joint_trajectory_controller/...`。
+- 两个实例必须同域、不同 USB 口；`robot_state_publisher` 在 side 模式下默认关闭，由双臂共享模型
+  统一发布 TF。
+- 双臂 MoveIt 侧见 `litearm_dual_arm` 包。
 
 ## 从另一个终端看到这套栈
 

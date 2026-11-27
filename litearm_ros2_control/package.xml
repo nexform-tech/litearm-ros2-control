@@ -7,6 +7,8 @@
     ros2_control SystemInterface for the litearm arm, driving it directly over USB CDC
     through the litearm C++ SDK. read() consumes the SDK's cached 100 Hz status frame;
     write() streams joint position/velocity references to the firmware's MOVE_JS servo.
+    The control launch also supports side:=left|right namespaced instances for a
+    dual-arm deployment.
   </description>
   <maintainer email="wurihao@nexform.tech">thetooler</maintainer>
   <license>Apache-2.0</license>
@@ -37,8 +39,10 @@
   <exec_depend>xacro</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
